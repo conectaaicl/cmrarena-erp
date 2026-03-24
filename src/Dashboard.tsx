@@ -1,156 +1,275 @@
 import { useQuery } from '@tanstack/react-query';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from 'recharts';
 import { TrendingUp, Users, Clock, FileText, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 
-const PAYMENT_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
 const formatCLP = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
-function KPICard({ title, value, subtitle, icon, color }: any) {
+function KPICard({ title, value, subtitle, icon: Icon, color }: {
+  title: string; value: string | number; subtitle?: string;
+  icon: React.ElementType; color: string;
+}) {
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-slate-500 font-medium">{title}</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{value}</p>
-          {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+    <div style={{
+      background: '#161b22',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 12,
+      padding: '20px 22px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+      transition: 'border-color 0.2s',
+    }}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)')}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <p style={{ fontSize: 12, color: '#6e7681', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {title}
+        </p>
+        <div style={{
+          width: 34, height: 34, borderRadius: 9,
+          background: `${color}18`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <Icon size={16} color={color} />
         </div>
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>{icon}</div>
+      </div>
+      <div>
+        <p style={{ fontSize: 26, fontWeight: 700, color: '#f0f6fc', letterSpacing: '-0.5px', lineHeight: 1 }}>
+          {value}
+        </p>
+        {subtitle && (
+          <p style={{ fontSize: 11, color: '#484f58', marginTop: 6 }}>{subtitle}</p>
+        )}
       </div>
     </div>
   );
 }
 
+const tooltipStyle = {
+  background: '#1c2128',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  fontSize: 12,
+  color: '#cdd9e5',
+};
+
 export default function Dashboard() {
   const { user } = useAuthStore();
-  const primaryColor = user?.tenant?.primaryColor || '#3b82f6';
+  const accentColor = user?.tenant?.primaryColor || '#3b82f6';
 
   const { data: kpis, isLoading, refetch } = useQuery({
     queryKey: ['analytics', 'kpis'],
-    queryFn: () => api.get('/analytics/kpis?period=month').then((r) => r.data.data),
+    queryFn: () => api.get('/analytics/kpis?period=month').then(r => r.data.data),
   });
-
   const { data: chartData } = useQuery({
     queryKey: ['analytics', 'chart'],
-    queryFn: () => api.get('/analytics/sales-chart?months=6').then((r) => r.data.data),
+    queryFn: () => api.get('/analytics/sales-chart?months=6').then(r => r.data.data),
   });
-
   const { data: topClients } = useQuery({
     queryKey: ['analytics', 'top-clients'],
-    queryFn: () => api.get('/analytics/top-clients').then((r) => r.data.data),
+    queryFn: () => api.get('/analytics/top-clients').then(r => r.data.data),
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-      </div>
-    );
-  }
+  if (isLoading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240 }}>
+      <Loader2 className="animate-spin" size={28} color="#3b82f6" />
+    </div>
+  );
 
   return (
-    <div className="space-y-8">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           {user?.tenant?.logoUrl && (
-            <img src={user.tenant.logoUrl} alt={user.tenant.name} className="h-10 object-contain mb-2"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <img src={user.tenant.logoUrl} alt={user.tenant.name}
+              style={{ height: 28, objectFit: 'contain', marginBottom: 10, opacity: 0.9 }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
           )}
-          <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 mt-1">Resumen del mes actual · {user?.tenant?.name}</p>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0f6fc', letterSpacing: '-0.4px', margin: 0 }}>
+            Dashboard
+          </h1>
+          <p style={{ fontSize: 13, color: '#484f58', marginTop: 4 }}>
+            Resumen del mes · {user?.tenant?.name}
+          </p>
         </div>
-        <button onClick={() => refetch()} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 transition" title="Actualizar">
-          <RefreshCw size={18} />
+        <button onClick={() => refetch()}
+          style={{
+            width: 34, height: 34, borderRadius: 8,
+            background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', color: '#6e7681', transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#cdd9e5'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6e7681'; }}
+          title="Actualizar"
+        >
+          <RefreshCw size={14} />
         </button>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        <KPICard title="Ventas del Mes" value={formatCLP(kpis?.totalRevenue || 0)} subtitle={`${kpis?.totalSales || 0} transacciones`} icon={<TrendingUp className="w-6 h-6 text-blue-600" />} color="bg-blue-50" />
-        <KPICard title="Clientes Activos" value={kpis?.activeClients || 0} subtitle="Sin clientes perdidos" icon={<Users className="w-6 h-6 text-green-600" />} color="bg-green-50" />
-        <KPICard title="Pagos Pendientes" value={formatCLP(kpis?.pendingAmount || 0)} subtitle={`${kpis?.pendingCount || 0} ventas por cobrar`} icon={<Clock className="w-6 h-6 text-orange-500" />} color="bg-orange-50" />
-        <KPICard title="Cotizaciones Emitidas" value={kpis?.quotationsIssued || 0} subtitle="Este mes" icon={<FileText className="w-6 h-6 text-purple-600" />} color="bg-purple-50" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+        <KPICard title="Ventas del Mes" value={formatCLP(kpis?.totalRevenue || 0)}
+          subtitle={`${kpis?.totalSales || 0} transacciones`}
+          icon={TrendingUp} color="#3b82f6" />
+        <KPICard title="Clientes Activos" value={kpis?.activeClients || 0}
+          subtitle="Clientes con actividad"
+          icon={Users} color="#22c55e" />
+        <KPICard title="Pagos Pendientes" value={formatCLP(kpis?.pendingAmount || 0)}
+          subtitle={`${kpis?.pendingCount || 0} por cobrar`}
+          icon={Clock} color="#f59e0b" />
+        <KPICard title="Cotizaciones" value={kpis?.quotationsIssued || 0}
+          subtitle="Emitidas este mes"
+          icon={FileText} color="#8b5cf6" />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Evolución de Ventas (6 meses)</h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={chartData || []}>
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14 }}>
+
+        {/* Area chart */}
+        <div style={{
+          background: '#161b22', border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 12, padding: '20px 22px',
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', marginBottom: 18 }}>
+            Evolución de Ventas — 6 meses
+          </p>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={chartData || []} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={primaryColor} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
+                  <stop offset="5%" stopColor={accentColor} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={accentColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94a3b8' }} />
-              <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12, fill: '#94a3b8' }} />
-              <Tooltip formatter={(v: any) => [formatCLP(Number(v)), 'Ventas']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
-              <Area type="monotone" dataKey="revenue" stroke={primaryColor} fill="url(#grad)" strokeWidth={2.5} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#484f58' }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#484f58' }} axisLine={false} tickLine={false} width={48} />
+              <Tooltip
+                formatter={(v: any) => [formatCLP(Number(v)), 'Ventas']}
+                contentStyle={tooltipStyle}
+                cursor={{ stroke: 'rgba(255,255,255,0.08)' }}
+              />
+              <Area type="monotone" dataKey="revenue" stroke={accentColor} fill="url(#grad)" strokeWidth={2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Métodos de Pago</h2>
+        {/* Pie chart */}
+        <div style={{
+          background: '#161b22', border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 12, padding: '20px 22px',
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', marginBottom: 18 }}>
+            Métodos de Pago
+          </p>
           {kpis?.paymentMethods?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={kpis.paymentMethods} dataKey="total" nameKey="method" cx="50%" cy="50%" outerRadius={70}>
-                  {kpis.paymentMethods.map((_: any, i: number) => (
-                    <Cell key={i} fill={PAYMENT_COLORS[i % PAYMENT_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: any) => formatCLP(Number(v))} />
-              </PieChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={150}>
+                <PieChart>
+                  <Pie data={kpis.paymentMethods} dataKey="total" nameKey="method"
+                    cx="50%" cy="50%" outerRadius={60} innerRadius={36} strokeWidth={0}>
+                    {kpis.paymentMethods.map((_: any, i: number) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: any) => formatCLP(Number(v))} contentStyle={tooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                {kpis.paymentMethods.slice(0, 4).map((m: any, i: number) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6e7681', flex: 1 }}>{m.method}</span>
+                    <span style={{ fontSize: 11, color: '#8b949e', fontWeight: 600 }}>{formatCLP(Number(m.total))}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
-            <div className="flex items-center justify-center h-40 text-slate-400 text-sm">Sin datos aún</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 150, color: '#484f58', fontSize: 12 }}>
+              Sin datos aún
+            </div>
           )}
         </div>
       </div>
 
-      {/* Bottom */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Top Clientes</h2>
-          <div className="space-y-3">
+      {/* Bottom row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+        {/* Top clients */}
+        <div style={{
+          background: '#161b22', border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 12, padding: '20px 22px',
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', marginBottom: 16 }}>Top Clientes</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {(topClients || []).slice(0, 5).map((c: any, i: number) => (
-              <div key={c.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-xs font-bold flex items-center justify-center">{i + 1}</span>
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-400">{Number(c.salescount)} ventas</p>
-                  </div>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: 6,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, fontWeight: 700, color: '#484f58', flexShrink: 0,
+                }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: '#cdd9e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
+                  <p style={{ fontSize: 10, color: '#484f58', marginTop: 1 }}>{Number(c.salescount)} ventas</p>
                 </div>
-                <span className="text-sm font-semibold text-slate-700">{formatCLP(Number(c.totalrevenue))}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#8b949e', flexShrink: 0 }}>
+                  {formatCLP(Number(c.totalrevenue))}
+                </span>
               </div>
             ))}
-            {(!topClients || topClients.length === 0) && <p className="text-sm text-slate-400 text-center py-4">Sin ventas registradas aún</p>}
+            {(!topClients || topClients.length === 0) && (
+              <p style={{ fontSize: 12, color: '#484f58', textAlign: 'center', padding: '16px 0' }}>
+                Sin ventas registradas aún
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold text-slate-800">Stock Crítico</h2>
+        {/* Stock alerts */}
+        <div style={{
+          background: '#161b22', border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 12, padding: '20px 22px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <AlertTriangle size={15} color="#f59e0b" />
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', margin: 0 }}>Stock Crítico</p>
           </div>
-          <div className="space-y-3">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {(kpis?.stockAlerts || []).map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{p.name}</p>
-                  <p className="text-xs text-slate-400">Mínimo: {p.minstock || p.minStock}</p>
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: '#cdd9e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
+                  <p style={{ fontSize: 10, color: '#484f58', marginTop: 1 }}>Mín: {p.minstock || p.minStock}</p>
                 </div>
-                <span className="px-2 py-1 bg-red-50 text-red-600 text-xs font-bold rounded-lg">{p.stock} uds.</span>
+                <span style={{
+                  padding: '3px 10px', borderRadius: 6,
+                  background: 'rgba(248,81,73,0.12)',
+                  border: '1px solid rgba(248,81,73,0.2)',
+                  fontSize: 11, fontWeight: 700, color: '#f85149', flexShrink: 0, marginLeft: 12,
+                }}>
+                  {p.stock} uds.
+                </span>
               </div>
             ))}
-            {(!kpis?.stockAlerts || kpis.stockAlerts.length === 0) && <p className="text-sm text-green-600 text-center py-4">Todo el inventario en orden</p>}
+            {(!kpis?.stockAlerts || kpis.stockAlerts.length === 0) && (
+              <p style={{ fontSize: 12, color: '#3fb950', textAlign: 'center', padding: '16px 0' }}>
+                ✓ Inventario en orden
+              </p>
+            )}
           </div>
         </div>
       </div>
