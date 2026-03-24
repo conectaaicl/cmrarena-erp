@@ -1,0 +1,87 @@
+version: '3.9'
+
+services:
+  # ──────────────────────────────────────────────
+  # PostgreSQL
+  # ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: cmrarena_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cmrarena_dev
+      POSTGRES_USER: cmrarena
+      POSTGRES_PASSWORD: CmrArena2024!
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cmrarena -d cmrarena_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────────
+  # Backend NestJS
+  # ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cmrarena_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://cmrarena:CmrArena2024!@postgres:5432/cmrarena_dev
+      JWT_SECRET: jwt-secret-change-in-production-min-64-chars-required-here
+      JWT_ACCESS_EXPIRES: 15m
+      JWT_REFRESH_SECRET: refresh-secret-different-from-jwt-secret-change-in-prod
+      JWT_REFRESH_EXPIRES: 7d
+      NODE_ENV: development
+      PORT: 3000
+      APP_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      MAIL_HOST: mail.conectaai.cl
+      MAIL_PORT: 587
+      MAIL_SECURE: "false"
+      MAIL_USER: ${MAIL_USER:-noreply@conectaai.cl}
+      MAIL_PASS: ${MAIL_PASS:-password}
+      MAIL_FROM: noreply@conectaai.cl
+      MAIL_FROM_NAME: CmrArena ERP
+      UPLOAD_DIR: /app/uploads
+      SII_CERT_ENCRYPTION_KEY: sii-key-32-chars-change-in-prod!!
+      SII_MOCK_MODE: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/src:/app/src
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "npx prisma migrate deploy && npx prisma db seed && npm run start:dev"
+
+  # ──────────────────────────────────────────────
+  # Frontend React
+  # ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: cmrarena_web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_WS_URL: ws://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  uploads_data:
