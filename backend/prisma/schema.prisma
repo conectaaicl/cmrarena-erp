@@ -34,6 +34,7 @@ model Tenant {
   auditLogs     AuditLog[]
   notifications Notification[]
   files         File[]
+  seoSite       SeoSite?
 
   @@index([slug])
 }
@@ -96,6 +97,8 @@ model Client {
   address     String?
   commune     String?
   city        String?
+  giro        String?
+  website     String?
   contactName String?
   status      ClientStatus @default(NUEVO)
   notes       String?
@@ -116,6 +119,7 @@ model Client {
 
 enum ClientStatus {
   NUEVO
+  CONTACTADO
   COTIZACION_ENVIADA
   SEGUIMIENTO
   APROBADO
@@ -473,4 +477,39 @@ enum FilePurpose {
   DTE_PDF
   DTE_XML
   EXPORT
+}
+
+// ─────────────────────────────────────────
+// SEO INTELLIGENCE
+// ─────────────────────────────────────────
+
+model SeoSite {
+  id           String       @id @default(cuid())
+  tenantId     String       @unique
+  siteUrl      String
+  googleToken  Json?
+  lastSync     DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  keywords SeoKeyword[]
+}
+
+model SeoKeyword {
+  id          String   @id @default(cuid())
+  siteId      String
+  query       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+  dateRange   String
+  createdAt   DateTime @default(now())
+
+  site SeoSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, query, dateRange])
+  @@index([siteId, dateRange])
+  @@index([siteId, position])
 }

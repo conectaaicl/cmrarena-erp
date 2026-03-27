@@ -12,6 +12,7 @@ import Quotations from './Quotations';
 import Sales from './Sales';
 import SII from './SII';
 import Settings from './Settings';
+import SEO from './SEO';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,7 @@ export default function App() {
             <Route path="sales" element={<Sales />} />
             <Route path="sii" element={<SII />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="seo" element={<SEO />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

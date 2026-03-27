@@ -3,7 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
   Settings as SettingsIcon, Landmark, Bell, LogOut,
-  ChevronLeft, ChevronRight, Zap,
+  ChevronLeft, ChevronRight, Zap, TrendingUp,
 } from 'lucide-react';
 import { useAuthStore } from './store/authStore';
 import api from './api/axios';
@@ -16,6 +16,7 @@ const navItems = [
   { to: '/quotations',  icon: FileText,        label: 'Cotizaciones' },
   { to: '/sales',       icon: ShoppingCart,    label: 'Ventas' },
   { to: '/sii',         icon: Landmark,        label: 'SII Chile' },
+  { to: '/seo',         icon: TrendingUp,      label: 'SEO Intelligence' },
   { to: '/settings',    icon: SettingsIcon,    label: 'Configuración' },
 ];
 

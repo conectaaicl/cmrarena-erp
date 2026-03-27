@@ -19,6 +19,7 @@ import { EmailModule } from './email/email.module';
 import { AuditModule } from './audit/audit.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ExportsModule } from './exports/exports.module';
+import { SeoModule } from './seo/seo.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -46,6 +47,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     AuditModule,
     AnalyticsModule,
     ExportsModule,
+    SeoModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
