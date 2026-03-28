@@ -37,7 +37,8 @@ export class QuotationsService {
     );
 
     const taxAmount = Math.round(subtotal * (taxRate / 100));
-    const total = subtotal + taxAmount;
+    const installationCost = dto.installationCost ?? 0;
+    const total = subtotal + taxAmount + installationCost;
 
     // Sequential number
     const lastQuotation = await this.prisma.quotation.findFirst({
@@ -54,6 +55,7 @@ export class QuotationsService {
         createdById: userId,
         subtotal,
         taxAmount,
+        installationCost,
         total,
         taxRate,
         notes: dto.notes,
@@ -65,6 +67,8 @@ export class QuotationsService {
             unitPrice: item.unitPrice,
             subtotal: item.subtotal,
             description: item.description,
+            width: item.width,
+            height: item.height,
           })),
         },
       },

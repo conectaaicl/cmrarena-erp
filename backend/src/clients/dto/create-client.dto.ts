@@ -19,11 +19,12 @@ export class CreateClientDto {
   @ApiProperty({ required: false }) @IsString() @IsOptional() address?: string;
   @ApiProperty({ required: false }) @IsString() @IsOptional() commune?: string;
   @ApiProperty({ required: false }) @IsString() @IsOptional() city?: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional() giro?: string;
+  @ApiProperty({ required: false, example: 'https://empresa.cl' }) @IsString() @IsOptional() website?: string;
   @ApiProperty({ required: false }) @IsString() @IsOptional() contactName?: string;
   @ApiProperty({ required: false }) @IsString() @IsOptional() notes?: string;
   @ApiProperty({ required: false, type: [String] }) @IsArray() @IsOptional() tags?: string[];
+  @ApiProperty({ required: false, enum: ClientStatus }) @IsEnum(ClientStatus) @IsOptional() status?: ClientStatus;
 }
 
-export class UpdateClientDto extends PartialType(CreateClientDto) {
-  @IsEnum(ClientStatus) @IsOptional() status?: ClientStatus;
-}
+export class UpdateClientDto extends PartialType(CreateClientDto) {}
