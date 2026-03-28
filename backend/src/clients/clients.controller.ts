@@ -29,6 +29,12 @@ export class ClientsController {
     return this.clientsService.getTimeline(tenantId, id);
   }
 
+  @Get(':id/seo')
+  @ApiOperation({ summary: 'Verificar indexación SEO del sitio web del cliente' })
+  checkSeo(@CurrentUser('tenantId') tenantId: string, @Param('id') id: string) {
+    return this.clientsService.checkSeo(tenantId, id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Crear cliente' })
   create(@CurrentUser('tenantId') tenantId: string, @Body() dto: CreateClientDto) {

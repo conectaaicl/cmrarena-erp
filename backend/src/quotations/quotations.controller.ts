@@ -65,6 +65,16 @@ export class QuotationsController {
     return this.quotationsService.approve(tenantId, id, userId);
   }
 
+  @Patch(':id')
+  @ApiOperation({ summary: 'Editar cotización' })
+  update(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateQuotationDto,
+  ) {
+    return this.quotationsService.update(tenantId, id, dto);
+  }
+
   @Patch(':id/status')
   @ApiOperation({ summary: 'Cambiar estado de cotización' })
   updateStatus(

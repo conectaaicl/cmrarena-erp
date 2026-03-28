@@ -109,6 +109,62 @@ export class QuotationsService {
     return q;
   }
 
+  async update(tenantId: string, id: string, dto: CreateQuotationDto) {
+    const existing = await this.findOne(tenantId, id);
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const client = await this.prisma.client.findFirst({ where: { id: dto.clientId, tenantId } });
+    if (!client) throw new NotFoundException('Cliente no encontrado');
+
+    const taxRate = Number(tenant.taxRate);
+    let subtotal = 0;
+    const enrichedItems = await Promise.all(
+      dto.items.map(async (item) => {
+        const product = await this.prisma.product.findFirst({ where: { id: item.productId, tenantId } });
+        if (!product) throw new NotFoundException(`Producto ${item.productId} no encontrado`);
+        const itemSubtotal = item.quantity * item.unitPrice;
+        subtotal += itemSubtotal;
+        return { ...item, subtotal: itemSubtotal };
+      }),
+    );
+
+    const taxAmount = Math.round(subtotal * (taxRate / 100));
+    const installationCost = dto.installationCost ?? 0;
+    const total = subtotal + taxAmount + installationCost;
+
+    // Delete old items then replace
+    await this.prisma.quotationItem.deleteMany({ where: { quotationId: id } });
+
+    return this.prisma.quotation.update({
+      where: { id },
+      data: {
+        clientId: dto.clientId,
+        subtotal,
+        taxAmount,
+        installationCost,
+        total,
+        taxRate,
+        notes: dto.notes,
+        validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+        items: {
+          create: enrichedItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            subtotal: item.subtotal,
+            description: item.description,
+            width: item.width,
+            height: item.height,
+          })),
+        },
+      },
+      include: {
+        client: true,
+        items: { include: { product: true } },
+        createdBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+  }
+
   async updateStatus(tenantId: string, id: string, status: string) {
     const q = await this.findOne(tenantId, id);
     return this.prisma.quotation.update({

@@ -1,49 +1,113 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, FileText, Send, CheckCircle, XCircle, Download, Loader2 } from 'lucide-react';
+import { Plus, Search, FileText, Send, CheckCircle, XCircle, Printer, Loader2, Trash2, Pencil } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import toast from 'react-hot-toast';
+import { printQuotation } from './utils/quotationPrint';
 
-
-const statusColors: Record<string, string> = {
-  BORRADOR: 'bg-gray-100 text-gray-700',
-  ENVIADA: 'bg-blue-100 text-blue-700',
-  APROBADA: 'bg-green-100 text-green-700',
-  RECHAZADA: 'bg-red-100 text-red-700',
-  VENCIDA: 'bg-orange-100 text-orange-700',
+const STATUS_BADGE: Record<string, React.CSSProperties> = {
+  BORRADOR: { background: 'rgba(107,114,128,0.15)', color: '#9ca3af' },
+  ENVIADA:  { background: 'rgba(59,130,246,0.15)',  color: '#60a5fa' },
+  APROBADA: { background: 'rgba(34,197,94,0.15)',   color: '#4ade80' },
+  RECHAZADA:{ background: 'rgba(239,68,68,0.15)',   color: '#f87171' },
+  VENCIDA:  { background: 'rgba(249,115,22,0.15)',  color: '#fb923c' },
 };
 
-const formatCLP = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+const cardStyle: React.CSSProperties = {
+  background: '#161b22',
+  border: '1px solid rgba(255,255,255,0.07)',
+  borderRadius: 12,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  background: '#0d1117',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  padding: '8px 12px',
+  fontSize: 13,
+  color: '#cdd9e5',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: 12, fontWeight: 500, color: '#6e7681', marginBottom: 4,
+};
+
+const thStyle: React.CSSProperties = {
+  padding: '10px 14px', fontSize: 11, fontWeight: 600,
+  color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px',
+  background: '#0d1117', borderBottom: '1px solid rgba(255,255,255,0.06)',
+  whiteSpace: 'nowrap',
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: '10px 14px', fontSize: 13, color: '#8b949e',
+  borderBottom: '1px solid rgba(255,255,255,0.04)',
+  verticalAlign: 'middle',
+};
+
+type ItemRow = {
+  productId: string;
+  name: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  width: string;
+  height: string;
+};
 
 export default function Quotations() {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
-  const primaryColor = user?.tenant?.primaryColor || '#0f172a';
-  const taxRate = user?.tenant?.taxRate || 19;
+  const accentColor = user?.tenant?.primaryColor || '#1d4ed8';
+  const taxRate = user?.tenant?.taxRate ?? 19;
+  const t = user?.tenant as any;
+  const logoUrl        = t?.logoUrl        || '';
+  const companyName    = t?.name           || '';
+  const companyTagline = t?.companyTagline || '';
+  const whatsapp       = t?.whatsapp       || '';
+  const companyEmail   = t?.companyEmail   || '';
+  const bankHolder     = t?.bankHolder     || '';
+  const bankName       = t?.bankName       || '';
+  const bankAccountType= t?.bankAccountType|| '';
+  const bankRut        = t?.bankRut        || '';
+  const bankAccount    = t?.bankAccount    || '';
 
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Form state
   const [selectedClient, setSelectedClient] = useState('');
-  const [selectedProduct, setSelectedProduct] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [unitPrice, setUnitPrice] = useState(0);
   const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<Array<{ productId: string; quantity: number; unitPrice: number; name: string }>>([]);
+  const [installationCost, setInstallationCost] = useState('');
+  const [items, setItems] = useState<ItemRow[]>([]);
+
+  // Item add row state
+  const [selProduct, setSelProduct] = useState('');
+  const [itemQty, setItemQty] = useState(1);
+  const [itemPrice, setItemPrice] = useState(0);
+  const [itemWidth, setItemWidth] = useState('');
+  const [itemHeight, setItemHeight] = useState('');
 
   const { data: quotations = [], isLoading } = useQuery({
     queryKey: ['quotations', searchTerm],
-    queryFn: () => api.get(`/quotations${searchTerm ? `?search=${searchTerm}` : ''}`).then((r) => r.data.data),
+    queryFn: () => api.get(`/quotations${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`).then((r) => r.data.data ?? r.data),
   });
 
   const { data: clients = [] } = useQuery({
     queryKey: ['clients-all'],
-    queryFn: () => api.get('/clients').then((r) => r.data.data),
+    queryFn: () => api.get('/clients').then((r) => r.data.data ?? r.data),
   });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-all'],
-    queryFn: () => api.get('/products').then((r) => r.data.data),
+    queryFn: () => api.get('/products').then((r) => r.data.data ?? r.data),
   });
 
   const createMutation = useMutation({
@@ -54,6 +118,16 @@ export default function Quotations() {
       resetForm();
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Error al crear cotización'),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.patch(`/quotations/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] });
+      toast.success('Cotización actualizada');
+      resetForm();
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Error al actualizar cotización'),
   });
 
   const statusMutation = useMutation({
@@ -84,209 +158,431 @@ export default function Quotations() {
 
   const handleProductSelect = (productId: string) => {
     const product = products.find((p: any) => p.id === productId);
-    setSelectedProduct(productId);
-    if (product) setUnitPrice(Number(product.price));
+    setSelProduct(productId);
+    if (product) setItemPrice(Number(product.price));
   };
 
   const handleAddItem = () => {
-    if (!selectedProduct || quantity <= 0) return;
-    const product = products.find((p: any) => p.id === selectedProduct);
+    if (!selProduct || itemQty <= 0) return;
+    const product = products.find((p: any) => p.id === selProduct);
     if (!product) return;
-    const existing = items.findIndex((i) => i.productId === selectedProduct);
+    const newItem: ItemRow = {
+      productId: product.id,
+      name: product.name,
+      sku: product.sku || '',
+      quantity: itemQty,
+      unitPrice: itemPrice,
+      width: itemWidth,
+      height: itemHeight,
+    };
+    const existing = items.findIndex((i) => i.productId === selProduct);
     if (existing >= 0) {
       const updated = [...items];
-      updated[existing].quantity += quantity;
+      updated[existing] = { ...updated[existing], quantity: updated[existing].quantity + itemQty };
       setItems(updated);
     } else {
-      setItems([...items, { productId: product.id, quantity, unitPrice, name: product.name }]);
+      setItems([...items, newItem]);
     }
-    setSelectedProduct('');
-    setQuantity(1);
-    setUnitPrice(0);
+    setSelProduct('');
+    setItemQty(1);
+    setItemPrice(0);
+    setItemWidth('');
+    setItemHeight('');
   };
 
   const handleSave = () => {
     if (!selectedClient || items.length === 0) return toast.error('Selecciona cliente y agrega productos');
-    createMutation.mutate({
+    const payload = {
       clientId: selectedClient,
       notes,
-      items: items.map(({ productId, quantity, unitPrice }) => ({ productId, quantity, unitPrice })),
-    });
+      installationCost: installationCost !== '' ? Number(installationCost) : undefined,
+      items: items.map(({ productId, quantity, unitPrice, width, height }) => ({
+        productId, quantity, unitPrice,
+        width: width !== '' ? Number(width) : undefined,
+        height: height !== '' ? Number(height) : undefined,
+      })),
+    };
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  };
+
+  const handleEdit = async (q: any) => {
+    try {
+      const res = await api.get(`/quotations/${q.id}`);
+      const detail = res.data.data ?? res.data;
+      setEditingId(detail.id);
+      setSelectedClient(detail.clientId);
+      setNotes(detail.notes || '');
+      setInstallationCost(Number(detail.installationCost ?? 0) > 0 ? String(detail.installationCost) : '');
+      setItems((detail.items || []).map((it: any) => ({
+        productId: it.productId,
+        name: it.product?.name || '',
+        sku: it.product?.sku || '',
+        quantity: Number(it.quantity),
+        unitPrice: Number(it.unitPrice),
+        width: it.width ? String(it.width) : '',
+        height: it.height ? String(it.height) : '',
+      })));
+      setIsAdding(true);
+    } catch {
+      toast.error('Error cargando cotización');
+    }
   };
 
   const resetForm = () => {
     setIsAdding(false);
+    setEditingId(null);
     setSelectedClient('');
-    setItems([]);
     setNotes('');
+    setInstallationCost('');
+    setItems([]);
+    setSelProduct('');
+    setItemQty(1);
+    setItemPrice(0);
+    setItemWidth('');
+    setItemHeight('');
   };
 
-  const downloadPDF = async (id: string, number: number) => {
+  // Fetch full quotation detail and open print window
+  const handlePrint = async (q: any) => {
     try {
-      const res = await api.get(`/quotations/${id}/pdf`, { responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `cotizacion-${String(number).padStart(4, '0')}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // Try to get full detail with items
+      let detail = q;
+      if (!q.items) {
+        const res = await api.get(`/quotations/${q.id}`);
+        detail = res.data.data ?? res.data;
+      }
+      const client = detail.client || {};
+      const inst = Number(detail.installationCost ?? 0);
+      const subtotalVal = Number(detail.subtotal ?? 0);
+      const taxVal = Number(detail.tax ?? 0);
+      const totalVal = Number(detail.total ?? 0);
+
+      printQuotation({
+        number: detail.number,
+        date: detail.date,
+        client: {
+          name: client.name || '',
+          rut: client.rut,
+          email: client.email,
+          phone: client.phone,
+          address: client.address,
+          city: client.city,
+        },
+        items: (detail.items || []).map((it: any) => ({
+          name: it.product?.name || it.name || '',
+          sku: it.product?.sku || it.sku || '',
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unitPrice),
+          subtotal: Number(it.subtotal ?? it.quantity * it.unitPrice),
+          width: it.width ? Number(it.width) : undefined,
+          height: it.height ? Number(it.height) : undefined,
+        })),
+        subtotal: subtotalVal,
+        tax: taxVal,
+        taxRate: Number(detail.taxRate ?? taxRate),
+        total: totalVal,
+        notes: detail.notes,
+        installationCost: inst > 0 ? inst : undefined,
+        companyName,
+        companyTagline: companyTagline || undefined,
+        logoUrl: logoUrl || undefined,
+        whatsapp: whatsapp || undefined,
+        companyEmail: companyEmail || undefined,
+        bankHolder: bankHolder || undefined,
+        bankName: bankName || undefined,
+        bankAccountType: bankAccountType || undefined,
+        bankRut: bankRut || undefined,
+        bankAccount: bankAccount || undefined,
+      });
     } catch {
-      toast.error('Error generando PDF');
+      toast.error('Error generando cotización');
     }
   };
 
+  // Subtotal preview while building form
   const subtotal = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
   const tax = subtotal * (taxRate / 100);
-  const total = subtotal + tax;
+  const inst = installationCost !== '' ? Number(installationCost) : 0;
+  const total = subtotal + tax + inst;
 
-  if (isLoading) return <div className="flex justify-center items-center h-48"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>;
+  const clientObj = clients.find((c: any) => c.id === selectedClient);
+
+  if (isLoading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '96px 0' }}>
+      <Loader2 size={28} color="#3b82f6" className="animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Cotizaciones</h1>
-          <p className="text-slate-500 text-sm mt-1">{quotations.length} cotizaciones en total</p>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0f6fc', letterSpacing: '-0.4px', margin: 0 }}>Cotizaciones</h1>
+          <p style={{ fontSize: 13, color: '#484f58', marginTop: 4 }}>{quotations.length} cotizaciones en total</p>
         </div>
-        <button onClick={() => setIsAdding(!isAdding)} className="flex items-center gap-2 text-white px-4 py-2 rounded-lg transition" style={{ backgroundColor: primaryColor }}>
-          <Plus size={18} /><span>Nueva Cotización</span>
+        <button onClick={() => { resetForm(); setIsAdding(true); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <Plus size={16} />Nueva Cotización
         </button>
       </div>
 
+      {/* Create Form */}
       {isAdding && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h2 className="text-lg font-semibold mb-4 border-b pb-3">Crear Cotización</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div style={{ ...cardStyle, padding: 24 }}>
+          <p style={{ fontSize: 15, fontWeight: 600, color: '#f0f6fc', marginBottom: 20, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            {editingId ? 'Editar Cotización' : 'Nueva Cotización'}
+          </p>
+
+          {/* Client + Notes + Installation */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 160px', gap: 16, marginBottom: 16 }}>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
+              <label style={labelStyle}>Cliente <span style={{ color: '#f85149' }}>*</span></label>
               <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                style={{ ...inputStyle, cursor: 'pointer' }}>
                 <option value="">Seleccione cliente...</option>
-                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name} — {c.rut}</option>)}
+                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.rut ? ` — ${c.rut}` : ''}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notas</label>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observaciones opcionales..."
-                className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label style={labelStyle}>Observaciones</label>
+              <input value={notes} onChange={(e) => setNotes(e.target.value)}
+                placeholder="Notas adicionales..." style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Instalación ($)</label>
+              <input type="number" min="0" value={installationCost}
+                onChange={(e) => setInstallationCost(e.target.value)}
+                placeholder="0" style={inputStyle} />
             </div>
           </div>
 
-          <div className="mt-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-            <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Producto</h3>
-            <div className="flex gap-2 flex-wrap">
-              <select value={selectedProduct} onChange={(e) => handleProductSelect(e.target.value)}
-                className="flex-1 border border-slate-200 rounded-lg p-2 text-sm outline-none min-w-[200px]">
-                <option value="">Seleccione producto...</option>
-                {products.map((p: any) => <option key={p.id} value={p.id}>{p.name} — {formatCLP(p.price)}</option>)}
-              </select>
-              <input type="number" min="0.1" step="0.1" value={unitPrice} onChange={(e) => setUnitPrice(Number(e.target.value))}
-                className="w-32 border border-slate-200 rounded-lg p-2 text-sm outline-none" placeholder="Precio" />
-              <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}
-                className="w-20 border border-slate-200 rounded-lg p-2 text-sm outline-none" />
-              <button onClick={handleAddItem} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700">Agregar</button>
+          {/* Client detail preview */}
+          {clientObj && (
+            <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 8, fontSize: 12, color: '#8b949e', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {clientObj.rut && <span><b style={{ color: '#6e7681' }}>RUT:</b> {clientObj.rut}</span>}
+              {clientObj.email && <span><b style={{ color: '#6e7681' }}>Email:</b> {clientObj.email}</span>}
+              {clientObj.phone && <span><b style={{ color: '#6e7681' }}>Tel:</b> {clientObj.phone}</span>}
+              {clientObj.address && <span><b style={{ color: '#6e7681' }}>Dir:</b> {clientObj.address}</span>}
+              {clientObj.city && <span><b style={{ color: '#6e7681' }}>Comuna:</b> {clientObj.city}</span>}
+            </div>
+          )}
+
+          {/* Add item row */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#6e7681', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Agregar Producto</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px 70px 70px auto', gap: 10, alignItems: 'end' }}>
+              <div>
+                <label style={labelStyle}>Producto</label>
+                <select value={selProduct} onChange={(e) => handleProductSelect(e.target.value)}
+                  style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="">Seleccione...</option>
+                  {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Precio ($)</label>
+                <input type="number" min="0" value={itemPrice} onChange={(e) => setItemPrice(Number(e.target.value))}
+                  style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Cantidad</label>
+                <input type="number" min="1" value={itemQty} onChange={(e) => setItemQty(Number(e.target.value))}
+                  style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Ancho (cm)</label>
+                <input type="number" min="0" value={itemWidth} onChange={(e) => setItemWidth(e.target.value)}
+                  placeholder="—" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Alto (cm)</label>
+                <input type="number" min="0" value={itemHeight} onChange={(e) => setItemHeight(e.target.value)}
+                  placeholder="—" style={inputStyle} />
+              </div>
+              <div>
+                <button onClick={handleAddItem}
+                  style={{ background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  + Agregar
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Items table */}
           {items.length > 0 && (
-            <div className="mt-4">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b text-slate-500 text-left">
-                  <th className="pb-2">Producto</th><th className="pb-2 text-right">Cant.</th>
-                  <th className="pb-2 text-right">P. Unit.</th><th className="pb-2 text-right">Subtotal</th><th></th>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-50">
-                  {items.map((item) => (
-                    <tr key={item.productId}>
-                      <td className="py-2">{item.name}</td>
-                      <td className="py-2 text-right">{item.quantity}</td>
-                      <td className="py-2 text-right">{formatCLP(item.unitPrice)}</td>
-                      <td className="py-2 text-right font-medium">{formatCLP(item.quantity * item.unitPrice)}</td>
-                      <td className="py-2 text-right">
-                        <button onClick={() => setItems(items.filter((i) => i.productId !== item.productId))} className="text-red-400 text-xs hover:text-red-600">Quitar</button>
+            <div style={{ marginBottom: 16 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {['Producto', 'SKU', 'Cant.', 'Ancho', 'Alto', 'P.Unit.', 'Subtotal', ''].map(h => (
+                      <th key={h} style={{ ...thStyle, textAlign: ['Cant.', 'Ancho', 'Alto', 'P.Unit.', 'Subtotal'].includes(h) ? 'right' : 'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, idx) => (
+                    <tr key={item.productId}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ ...tdStyle, color: '#cdd9e5', fontWeight: 500 }}>{item.name}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{item.sku || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{item.quantity}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{item.width || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{item.height || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(item.unitPrice)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: '#cdd9e5' }}>{fmt(item.quantity * item.unitPrice)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <button onClick={() => setItems(items.filter((_, i) => i !== idx))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f85149', padding: 4 }}>
+                          <Trash2 size={13} />
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="mt-4 flex justify-end">
-                <div className="w-64 space-y-1 text-right text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Neto:</span><span>{formatCLP(subtotal)}</span></div>
-                  <div className="flex justify-between text-slate-500"><span>IVA ({taxRate}%):</span><span>{formatCLP(tax)}</span></div>
-                  <div className="flex justify-between font-bold text-base border-t pt-2"><span>Total:</span><span>{formatCLP(total)}</span></div>
+
+              {/* Totals preview */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <div style={{ width: 240, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#8b949e' }}>
+                    <span>Subtotal neto:</span><span>{fmt(subtotal)}</span>
+                  </div>
+                  {taxRate > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#8b949e' }}>
+                      <span>IVA ({taxRate}%):</span><span>{fmt(tax)}</span>
+                    </div>
+                  )}
+                  {inst > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#8b949e' }}>
+                      <span>Instalación:</span><span>{fmt(inst)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 4, fontWeight: 700, fontSize: 15, color: '#f0f6fc' }}>
+                    <span>TOTAL:</span><span>{fmt(total)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="flex justify-end gap-3 mt-6 border-t pt-4">
-            <button onClick={resetForm} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">Cancelar</button>
-            <button onClick={handleSave} disabled={createMutation.isPending || !selectedClient || items.length === 0}
-              className="px-5 py-2 text-white rounded-lg text-sm disabled:opacity-50 flex items-center gap-2" style={{ backgroundColor: primaryColor }}>
-              {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-              Guardar Cotización
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <button onClick={resetForm}
+              style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#8b949e', cursor: 'pointer' }}>
+              Cancelar
+            </button>
+            <button onClick={handleSave} disabled={(createMutation.isPending || updateMutation.isPending) || !selectedClient || items.length === 0}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: ((createMutation.isPending || updateMutation.isPending) || !selectedClient || items.length === 0) ? 0.5 : 1 }}>
+              {(createMutation.isPending || updateMutation.isPending) && <Loader2 size={14} className="animate-spin" />}
+              {editingId ? 'Actualizar Cotización' : 'Guardar Cotización'}
             </button>
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100">
-        <div className="p-4 border-b border-slate-100">
-          <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por cliente..." className="pl-9 pr-4 py-2 w-full border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+      {/* List */}
+      <div style={cardStyle}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Search size={15} color="#484f58" style={{ flexShrink: 0 }} />
+          <input type="text" placeholder="Buscar por cliente..."
+            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ ...inputStyle, border: 'none', background: 'transparent', padding: '4px 0', flex: 1 }} />
+        </div>
+
+        {quotations.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 0', color: '#484f58' }}>
+            <FileText size={36} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+            <p style={{ fontSize: 13 }}>No hay cotizaciones aún</p>
           </div>
-        </div>
-
-        <div className="divide-y divide-slate-50">
-          {quotations.map((q: any) => (
-            <div key={q.id} className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:bg-slate-50 transition">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-800">Cotización #{String(q.number).padStart(4, '0')}</p>
-                  <p className="text-sm text-slate-500">{q.client?.name} · {q._count?.items || 0} productos</p>
-                  <p className="text-xs text-slate-400">{new Date(q.date).toLocaleDateString('es-CL')}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="font-bold text-slate-800">{formatCLP(Number(q.total))}</span>
-                <span className={`px-2.5 py-1 text-xs rounded-full font-medium ${statusColors[q.status] || 'bg-gray-100 text-gray-700'}`}>{q.status}</span>
-
-                <div className="flex gap-1.5">
-                  <button onClick={() => downloadPDF(q.id, q.number)} className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition" title="Descargar PDF">
-                    <Download size={15} />
-                  </button>
-                  {(q.status === 'BORRADOR' || q.status === 'ENVIADA') && (
-                    <button onClick={() => sendEmailMutation.mutate(q.id)} className="p-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition" title="Enviar por email">
-                      <Send size={15} />
-                    </button>
-                  )}
-                  {(q.status === 'BORRADOR' || q.status === 'ENVIADA') && (
-                    <button onClick={() => approveMutation.mutate(q.id)} className="p-1.5 rounded-lg border border-green-200 text-green-600 hover:bg-green-50 transition" title="Aprobar">
-                      <CheckCircle size={15} />
-                    </button>
-                  )}
-                  {q.status !== 'RECHAZADA' && q.status !== 'APROBADA' && (
-                    <button onClick={() => statusMutation.mutate({ id: q.id, status: 'RECHAZADA' })} className="p-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition" title="Rechazar">
-                      <XCircle size={15} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-          {quotations.length === 0 && (
-            <div className="text-center py-12 text-slate-400">
-              <FileText className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p>No hay cotizaciones aún</p>
-            </div>
-          )}
-        </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Cotización', 'Cliente', 'Fecha', 'Items', 'Total', 'Estado', ''].map(h => (
+                  <th key={h} style={{ ...thStyle, textAlign: ['Total', ''].includes(h) ? 'right' : 'left' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {quotations.map((q: any) => {
+                const badge = STATUS_BADGE[q.status] || STATUS_BADGE.BORRADOR;
+                return (
+                  <tr key={q.id}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 7, background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <FileText size={14} color="#60a5fa" />
+                        </div>
+                        <span style={{ fontWeight: 600, color: '#cdd9e5', fontFamily: 'monospace' }}>
+                          #{String(q.number).padStart(4, '0')}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ ...tdStyle, color: '#cdd9e5' }}>{q.client?.name || '—'}</td>
+                    <td style={tdStyle}>{new Date(q.date).toLocaleDateString('es-CL')}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{q._count?.items ?? '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: '#cdd9e5' }}>{fmt(Number(q.total))}</td>
+                    <td style={tdStyle}>
+                      <span style={{ ...badge, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>
+                        {q.status}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {q.status === 'BORRADOR' && (
+                          <button onClick={() => handleEdit(q)} title="Editar cotización"
+                            style={{ background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#6e7681', display: 'flex', alignItems: 'center' }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(251,191,36,0.4)'; e.currentTarget.style.color = '#fbbf24'; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#6e7681'; }}>
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                        <button onClick={() => handlePrint(q)} title="Imprimir / PDF"
+                          style={{ background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#6e7681', display: 'flex', alignItems: 'center' }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.4)'; e.currentTarget.style.color = '#60a5fa'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#6e7681'; }}>
+                          <Printer size={13} />
+                        </button>
+                        {(q.status === 'BORRADOR' || q.status === 'ENVIADA') && (
+                          <button onClick={() => sendEmailMutation.mutate(q.id)} title="Enviar por email"
+                            style={{ background: 'none', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#60a5fa', display: 'flex', alignItems: 'center' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <Send size={13} />
+                          </button>
+                        )}
+                        {(q.status === 'BORRADOR' || q.status === 'ENVIADA') && (
+                          <button onClick={() => approveMutation.mutate(q.id)} title="Aprobar"
+                            style={{ background: 'none', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#4ade80', display: 'flex', alignItems: 'center' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(34,197,94,0.1)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <CheckCircle size={13} />
+                          </button>
+                        )}
+                        {q.status !== 'RECHAZADA' && q.status !== 'APROBADA' && (
+                          <button onClick={() => statusMutation.mutate({ id: q.id, status: 'RECHAZADA' })} title="Rechazar"
+                            style={{ background: 'none', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <XCircle size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
