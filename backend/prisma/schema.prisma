@@ -35,6 +35,7 @@ model Tenant {
   notifications Notification[]
   files         File[]
   seoSite       SeoSite?
+  tasks         Task[]
 
   @@index([slug])
 }
@@ -68,6 +69,7 @@ model User {
   quotations Quotation[]
   sales      Sale[]
   auditLogs  AuditLog[]
+  tasks      Task[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -111,6 +113,7 @@ model Client {
   quotations Quotation[]
   sales      Sale[]
   dtes       DTE[]
+  tasks      Task[]
 
   @@unique([tenantId, rutClean])
   @@index([tenantId])
@@ -497,6 +500,47 @@ model SeoSite {
 
   tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   keywords SeoKeyword[]
+}
+
+// ─────────────────────────────────────────
+// TASKS / SEGUIMIENTO
+// ─────────────────────────────────────────
+
+model Task {
+  id          String       @id @default(cuid())
+  tenantId    String
+  clientId    String?
+  createdById String
+  title       String
+  description String?
+  dueDate     DateTime?
+  status      TaskStatus   @default(PENDIENTE)
+  priority    TaskPriority @default(MEDIA)
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client? @relation(fields: [clientId], references: [id])
+  createdBy User    @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+}
+
+enum TaskStatus {
+  PENDIENTE
+  EN_PROGRESO
+  COMPLETADA
+  CANCELADA
+}
+
+enum TaskPriority {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
 }
 
 model SeoKeyword {

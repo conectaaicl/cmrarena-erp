@@ -1,29 +1,34 @@
-import { useState, useEffect } from 'react';
-import { Outlet, NavLink } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
   Settings as SettingsIcon, Landmark, Bell, LogOut,
-  ChevronLeft, ChevronRight, Zap, TrendingUp,
+  ChevronLeft, ChevronRight, Zap, TrendingUp, Search, ClipboardList,
 } from 'lucide-react';
 import { useAuthStore } from './store/authStore';
 import api from './api/axios';
 import { useQuery } from '@tanstack/react-query';
 
 const navItems = [
-  { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/crm',         icon: Users,           label: 'CRM / Clientes' },
-  { to: '/inventory',   icon: Package,         label: 'Inventario' },
-  { to: '/quotations',  icon: FileText,        label: 'Cotizaciones' },
-  { to: '/sales',       icon: ShoppingCart,    label: 'Ventas' },
-  { to: '/sii',         icon: Landmark,        label: 'SII Chile' },
-  { to: '/seo',         icon: TrendingUp,      label: 'SEO Intelligence' },
-  { to: '/settings',    icon: SettingsIcon,    label: 'Configuración' },
+  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/crm',          icon: Users,           label: 'CRM / Clientes' },
+  { to: '/seguimiento',  icon: ClipboardList,   label: 'Seguimiento' },
+  { to: '/inventory',    icon: Package,         label: 'Inventario' },
+  { to: '/quotations',   icon: FileText,        label: 'Cotizaciones' },
+  { to: '/sales',        icon: ShoppingCart,    label: 'Ventas' },
+  { to: '/sii',          icon: Landmark,        label: 'SII Chile' },
+  { to: '/seo',          icon: TrendingUp,      label: 'SEO Intelligence' },
+  { to: '/settings',     icon: SettingsIcon,    label: 'Configuración' },
 ];
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const accentColor = user?.tenant?.primaryColor || '#3b82f6';
 
@@ -44,6 +49,13 @@ export default function Layout() {
 
   const unread = typeof unreadData === 'number' ? unreadData : 0;
   const markAllRead = async () => { await api.patch('/notifications/read-all'); refetchNotif(); };
+
+  const { data: searchResults } = useQuery({
+    queryKey: ['search', searchQ],
+    queryFn: () => api.get(`/search?q=${encodeURIComponent(searchQ)}`).then(r => r.data.data ?? r.data),
+    enabled: searchQ.trim().length >= 2,
+    staleTime: 10_000,
+  });
 
   const initials = `${user?.firstName?.charAt(0) ?? ''}${user?.lastName?.charAt(0) ?? ''}`;
 
@@ -234,9 +246,104 @@ export default function Layout() {
           background: '#010409',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           display: 'flex', alignItems: 'center',
-          justifyContent: 'flex-end',
-          padding: '0 24px', gap: 8,
+          justifyContent: 'space-between',
+          padding: '0 24px', gap: 12,
         }}>
+          {/* Global search */}
+          <div ref={searchRef} style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '0 12px', height: 34 }}>
+              <Search size={13} color="#484f58" style={{ flexShrink: 0 }} />
+              <input
+                type="text"
+                placeholder="Buscar clientes, productos, cotizaciones..."
+                value={searchQ}
+                onChange={e => { setSearchQ(e.target.value); setShowSearch(true); }}
+                onFocus={() => setShowSearch(true)}
+                style={{ background: 'none', border: 'none', outline: 'none', fontSize: 12, color: '#cdd9e5', flex: 1, minWidth: 0 }}
+              />
+              {searchQ && (
+                <button onClick={() => { setSearchQ(''); setShowSearch(false); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#484f58', padding: 0, display: 'flex', lineHeight: 1 }}>
+                  ×
+                </button>
+              )}
+            </div>
+
+            {showSearch && searchQ.trim().length >= 2 && searchResults && (
+              <div style={{
+                position: 'absolute', top: 40, left: 0, right: 0,
+                background: '#161b22', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10, boxShadow: '0 16px 48px rgba(0,0,0,0.6)', zIndex: 210,
+                maxHeight: 400, overflowY: 'auto',
+              }}>
+                {/* Clients */}
+                {searchResults.clients?.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 10, color: '#484f58', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', padding: '10px 14px 4px' }}>Clientes</p>
+                    {searchResults.clients.map((c: any) => (
+                      <button key={c.id} onClick={() => { navigate('/crm'); setShowSearch(false); setSearchQ(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <div style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(34,197,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Users size={13} color="#4ade80" />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 12, color: '#cdd9e5', fontWeight: 500 }}>{c.name}</p>
+                          <p style={{ fontSize: 10, color: '#6e7681' }}>{c.rut}{c.email ? ` · ${c.email}` : ''}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Products */}
+                {searchResults.products?.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 10, color: '#484f58', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', padding: '10px 14px 4px' }}>Productos</p>
+                    {searchResults.products.map((p: any) => (
+                      <button key={p.id} onClick={() => { navigate('/inventory'); setShowSearch(false); setSearchQ(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <div style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Package size={13} color="#60a5fa" />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 12, color: '#cdd9e5', fontWeight: 500 }}>{p.name}</p>
+                          <p style={{ fontSize: 10, color: '#6e7681' }}>{p.sku} · Stock: {p.stock}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Quotations */}
+                {searchResults.quotations?.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 10, color: '#484f58', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', padding: '10px 14px 4px' }}>Cotizaciones</p>
+                    {searchResults.quotations.map((q: any) => (
+                      <button key={q.id} onClick={() => { navigate('/quotations'); setShowSearch(false); setSearchQ(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <div style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <FileText size={13} color="#a78bfa" />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 12, color: '#cdd9e5', fontWeight: 500 }}>#{String(q.number).padStart(4,'0')} · {q.client?.name}</p>
+                          <p style={{ fontSize: 10, color: '#6e7681' }}>${Number(q.total).toLocaleString('es-CL')} · {q.status}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* No results */}
+                {!searchResults.clients?.length && !searchResults.products?.length && !searchResults.quotations?.length && (
+                  <p style={{ fontSize: 12, color: '#484f58', textAlign: 'center', padding: '20px 0' }}>Sin resultados para "{searchQ}"</p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Notif bell */}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowNotif(!showNotif)}
@@ -334,6 +441,10 @@ export default function Layout() {
       {showNotif && (
         <div onClick={() => setShowNotif(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+      )}
+      {showSearch && (
+        <div onClick={() => setShowSearch(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 190 }} />
       )}
     </div>
   );

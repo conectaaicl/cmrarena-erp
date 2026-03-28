@@ -13,6 +13,7 @@ import Sales from './Sales';
 import SII from './SII';
 import Settings from './Settings';
 import SEO from './SEO';
+import Seguimiento from './Seguimiento';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +62,7 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="crm" element={<CRM />} />
+            <Route path="seguimiento" element={<Seguimiento />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="quotations" element={<Quotations />} />
             <Route path="sales" element={<Sales />} />

@@ -20,6 +20,8 @@ import { AuditModule } from './audit/audit.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ExportsModule } from './exports/exports.module';
 import { SeoModule } from './seo/seo.module';
+import { TasksModule } from './tasks/tasks.module';
+import { SearchModule } from './search/search.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -48,6 +50,8 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     AnalyticsModule,
     ExportsModule,
     SeoModule,
+    TasksModule,
+    SearchModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
