@@ -185,12 +185,13 @@ export default function Quotations() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: 'excel' | 'pdf') => {
     try {
-      const res = await api.get('/exports/sales/excel', { responseType: 'blob' });
+      const ext = format === 'excel' ? 'xlsx' : 'pdf';
+      const res = await api.get(`/exports/quotations/${format}`, { responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
-      a.href = url; a.download = `cotizaciones-${new Date().toISOString().slice(0,10)}.xlsx`;
+      a.href = url; a.download = `cotizaciones-${new Date().toISOString().slice(0,10)}.${ext}`;
       a.click(); URL.revokeObjectURL(url);
     } catch { toast.error('Error exportando'); }
   };
@@ -376,9 +377,13 @@ export default function Quotations() {
           <p style={{ fontSize: 13, color: '#484f58', marginTop: 4 }}>{quotations.length} cotizaciones en total</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleExport}
+          <button onClick={() => handleExport('excel')}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
             <Download size={14} />Excel
+          </button>
+          <button onClick={() => handleExport('pdf')}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+            <FileText size={14} />PDF
           </button>
           <button onClick={() => { resetForm(); setIsAdding(true); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>

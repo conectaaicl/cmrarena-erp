@@ -445,6 +445,17 @@ export default function CRM() {
               style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
               <Download size={14} />Excel
             </button>
+            <button onClick={async () => {
+              try {
+                const res = await api.get('/exports/clients/pdf', { responseType: 'blob' });
+                const url = URL.createObjectURL(new Blob([res.data]));
+                const a = document.createElement('a'); a.href = url;
+                a.download = 'clientes.pdf'; a.click(); URL.revokeObjectURL(url);
+              } catch { toast.error('Error exportando'); }
+            }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+              <Download size={14} />PDF
+            </button>
             <button onClick={() => { setIsAdding(!isAdding); setForm({ ...emptyForm }); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               <Plus size={16} /> Nuevo Cliente
