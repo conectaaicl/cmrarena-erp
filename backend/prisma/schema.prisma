@@ -115,8 +115,8 @@ model Client {
   quotations Quotation[]
   sales      Sale[]
   dtes       DTE[]
-  tasks      Task[]
-  notes      ClientNote[]
+  tasks        Task[]
+  activityNotes ClientNote[]
 
   @@unique([tenantId, rutClean])
   @@index([tenantId])
