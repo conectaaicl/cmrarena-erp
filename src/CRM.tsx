@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Search, Mail, Phone, MapPin, FileText, Loader2,
   Building2, User2, ChevronDown, Globe, CheckCircle, XCircle,
-  RefreshCw, LayoutGrid, List, X, ShoppingCart,
+  RefreshCw, LayoutGrid, List, X, ShoppingCart, Download, Trash2,
 } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
@@ -223,15 +223,73 @@ function ClientDetail({ client, onClose, onStatusChange }: { client: any; onClos
           ))}
         </div>
 
-        {/* Notes */}
-        {client.notes && (
-          <div style={{ padding: '0 24px 24px' }}>
-            <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Notas</p>
-            <p style={{ fontSize: 13, color: '#8b949e', background: '#0d1117', borderRadius: 8, padding: '10px 14px', lineHeight: 1.6 }}>{client.notes}</p>
-          </div>
-        )}
+        {/* Activity Notes */}
+        <ActivityNotes clientId={client.id} />
       </div>
     </>
+  );
+}
+
+function ActivityNotes({ clientId }: { clientId: string }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState('');
+
+  const { data: notes = [] } = useQuery({
+    queryKey: ['client-notes', clientId],
+    queryFn: () => api.get(`/clients/${clientId}/notes`).then(r => r.data.data ?? r.data),
+  });
+
+  const addNote = useMutation({
+    mutationFn: (content: string) => api.post(`/clients/${clientId}/notes`, { content }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-notes', clientId] }); setText(''); },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Error'),
+  });
+
+  const deleteNote = useMutation({
+    mutationFn: (noteId: string) => api.delete(`/clients/${clientId}/notes/${noteId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['client-notes', clientId] }),
+  });
+
+  return (
+    <div style={{ padding: '16px 24px 32px' }}>
+      <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Actividad / Notas</p>
+
+      {/* Add note */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={text} onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && text.trim()) addNote.mutate(text.trim()); }}
+          placeholder="Agregar nota (Enter para guardar)..."
+          style={{ flex: 1, background: '#0d1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#cdd9e5', outline: 'none' }} />
+        <button onClick={() => { if (text.trim()) addNote.mutate(text.trim()); }}
+          disabled={!text.trim() || addNote.isPending}
+          style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          + Agregar
+        </button>
+      </div>
+
+      {/* Notes list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {(notes as any[]).length === 0 && (
+          <p style={{ fontSize: 12, color: '#484f58', fontStyle: 'italic' }}>Sin actividad registrada</p>
+        )}
+        {(notes as any[]).map((n: any) => (
+          <div key={n.id} style={{ background: '#0d1117', borderRadius: 8, padding: '10px 12px', position: 'relative', group: true } as any}
+            onMouseEnter={e => { const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '1'; }}
+            onMouseLeave={e => { const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0'; }}>
+            <p style={{ fontSize: 13, color: '#cdd9e5', margin: '0 0 6px', lineHeight: 1.5 }}>{n.content}</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: '#484f58' }}>
+                {n.user?.firstName} {n.user?.lastName} · {new Date(n.createdAt).toLocaleString('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <button className="del-btn" onClick={() => deleteNote.mutate(n.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: '2px 4px', opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}>
+                <Trash2 size={11} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -375,10 +433,23 @@ export default function CRM() {
               </button>
             ))}
           </div>
-          <button onClick={() => { setIsAdding(!isAdding); setForm({ ...emptyForm }); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <Plus size={16} /> Nuevo Cliente
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={async () => {
+              try {
+                const res = await api.get('/exports/clients/excel', { responseType: 'blob' });
+                const url = URL.createObjectURL(new Blob([res.data]));
+                const a = document.createElement('a'); a.href = url;
+                a.download = 'clientes.xlsx'; a.click(); URL.revokeObjectURL(url);
+              } catch { toast.error('Error exportando'); }
+            }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+              <Download size={14} />Excel
+            </button>
+            <button onClick={() => { setIsAdding(!isAdding); setForm({ ...emptyForm }); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              <Plus size={16} /> Nuevo Cliente
+            </button>
+          </div>
         </div>
       </div>
 

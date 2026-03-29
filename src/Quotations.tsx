@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, FileText, Send, CheckCircle, XCircle, Printer, Loader2, Trash2, Pencil } from 'lucide-react';
+import { Plus, Search, FileText, Send, CheckCircle, XCircle, Printer, Loader2, Trash2, Pencil, ShoppingCart, X, Download } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import toast from 'react-hot-toast';
@@ -81,6 +81,8 @@ export default function Quotations() {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [convertingQuotation, setConvertingQuotation] = useState<any>(null);
+  const [convertPayMethod, setConvertPayMethod] = useState('TRANSFERENCIA');
 
   // Form state
   const [selectedClient, setSelectedClient] = useState('');
@@ -145,6 +147,53 @@ export default function Quotations() {
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Error enviando email'),
   });
+
+  const convertToSaleMutation = useMutation({
+    mutationFn: ({ quotation, paymentMethod }: { quotation: any; paymentMethod: string }) => {
+      const detail = quotation;
+      return api.post('/sales', {
+        clientId: detail.client?.id || detail.clientId,
+        quotationId: detail.id,
+        paymentMethod,
+        paymentStatus: 'PENDIENTE',
+        notes: detail.notes,
+        items: (detail.items || []).map((it: any) => ({
+          productId: it.productId,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unitPrice),
+          description: it.description,
+        })),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      toast.success('Venta creada desde cotización');
+      setConvertingQuotation(null);
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Error al convertir'),
+  });
+
+  const handleConvert = async (q: any) => {
+    try {
+      const res = await api.get(`/quotations/${q.id}`);
+      const detail = res.data.data ?? res.data;
+      setConvertingQuotation(detail);
+      setConvertPayMethod('TRANSFERENCIA');
+    } catch {
+      toast.error('Error cargando cotización');
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await api.get('/exports/sales/excel', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url; a.download = `cotizaciones-${new Date().toISOString().slice(0,10)}.xlsx`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch { toast.error('Error exportando'); }
+  };
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.post(`/quotations/${id}/approve`),
@@ -326,10 +375,16 @@ export default function Quotations() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0f6fc', letterSpacing: '-0.4px', margin: 0 }}>Cotizaciones</h1>
           <p style={{ fontSize: 13, color: '#484f58', marginTop: 4 }}>{quotations.length} cotizaciones en total</p>
         </div>
-        <button onClick={() => { resetForm(); setIsAdding(true); }}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <Plus size={16} />Nueva Cotización
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleExport}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+            <Download size={14} />Excel
+          </button>
+          <button onClick={() => { resetForm(); setIsAdding(true); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <Plus size={16} />Nueva Cotización
+          </button>
+        </div>
       </div>
 
       {/* Create Form */}
@@ -486,6 +541,44 @@ export default function Quotations() {
         </div>
       )}
 
+      {/* Modal: Convertir a Venta */}
+      {convertingQuotation && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: 28, width: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.8)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#f0f6fc', margin: 0 }}>Convertir a Venta</p>
+              <button onClick={() => setConvertingQuotation(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6e7681' }}><X size={16} /></button>
+            </div>
+            <div style={{ background: '#0d1117', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: '#8b949e' }}>
+              <div>Cotización <strong style={{ color: '#cdd9e5' }}>#{String(convertingQuotation.number).padStart(4,'0')}</strong></div>
+              <div>Cliente: <strong style={{ color: '#cdd9e5' }}>{convertingQuotation.client?.name}</strong></div>
+              <div style={{ marginTop: 6, fontSize: 14, fontWeight: 700, color: '#f0f6fc' }}>Total: {fmt(Number(convertingQuotation.total))}</div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={labelStyle}>Método de pago</label>
+              <select value={convertPayMethod} onChange={e => setConvertPayMethod(e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer' }}>
+                {[['TRANSFERENCIA','Transferencia'],['EFECTIVO','Efectivo'],['DEBITO','Débito'],['CREDITO','Crédito'],['CHEQUE','Cheque']].map(([v,l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConvertingQuotation(null)}
+                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#8b949e', cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={() => convertToSaleMutation.mutate({ quotation: convertingQuotation, paymentMethod: convertPayMethod })}
+                disabled={convertToSaleMutation.isPending}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#22c55e', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: convertToSaleMutation.isPending ? 0.6 : 1 }}>
+                {convertToSaleMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
+                Crear Venta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* List */}
       <div style={cardStyle}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -537,6 +630,14 @@ export default function Quotations() {
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {q.status === 'APROBADA' && (
+                          <button onClick={() => handleConvert(q)} title="Convertir a venta"
+                            style={{ background: 'none', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#4ade80', display: 'flex', alignItems: 'center' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(34,197,94,0.1)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <ShoppingCart size={13} />
+                          </button>
+                        )}
                         {q.status === 'BORRADOR' && (
                           <button onClick={() => handleEdit(q)} title="Editar cotización"
                             style={{ background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', color: '#6e7681', display: 'flex', alignItems: 'center' }}

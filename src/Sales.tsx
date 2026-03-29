@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingCart, Plus, Search, Loader2, CheckCircle, Clock,
-  AlertCircle, ChevronDown, ChevronRight, Trash2, RefreshCw,
+  AlertCircle, ChevronDown, ChevronRight, Trash2, RefreshCw, Download,
 } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
@@ -204,10 +204,24 @@ export default function Sales() {
             {filtered.length} venta{filtered.length !== 1 ? 's' : ''} · {formatCLP(totalRevenue)}
           </p>
         </div>
-        <button onClick={() => { resetForm(); setIsAdding(true); }}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <Plus size={16} /> Nueva Venta
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={async () => {
+            try {
+              const res = await api.get('/exports/sales/excel', { responseType: 'blob' });
+              const url = URL.createObjectURL(new Blob([res.data]));
+              const a = document.createElement('a'); a.href = url;
+              a.download = `ventas-${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
+              URL.revokeObjectURL(url);
+            } catch { toast.error('Error exportando'); }
+          }}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+            <Download size={14} />Excel
+          </button>
+          <button onClick={() => { resetForm(); setIsAdding(true); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <Plus size={16} /> Nueva Venta
+          </button>
+        </div>
       </div>
 
       {isAdding && (

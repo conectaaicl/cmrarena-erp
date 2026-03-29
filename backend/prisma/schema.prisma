@@ -36,6 +36,7 @@ model Tenant {
   files         File[]
   seoSite       SeoSite?
   tasks         Task[]
+  clientNotes   ClientNote[]
 
   @@index([slug])
 }
@@ -69,7 +70,8 @@ model User {
   quotations Quotation[]
   sales      Sale[]
   auditLogs  AuditLog[]
-  tasks      Task[]
+  tasks        Task[]
+  clientNotes  ClientNote[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -114,6 +116,7 @@ model Client {
   sales      Sale[]
   dtes       DTE[]
   tasks      Task[]
+  notes      ClientNote[]
 
   @@unique([tenantId, rutClean])
   @@index([tenantId])
@@ -500,6 +503,25 @@ model SeoSite {
 
   tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   keywords SeoKeyword[]
+}
+
+// ─────────────────────────────────────────
+// CLIENT NOTES / ACTIVIDAD
+// ─────────────────────────────────────────
+
+model ClientNote {
+  id          String   @id @default(cuid())
+  tenantId    String
+  clientId    String
+  userId      String
+  content     String
+  createdAt   DateTime @default(now())
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client  Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, clientId])
 }
 
 // ─────────────────────────────────────────

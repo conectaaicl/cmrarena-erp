@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, AlertCircle, Package, Loader2, Pencil, ChevronDown, Filter } from 'lucide-react';
+import { Plus, Search, AlertCircle, Package, Loader2, Pencil, ChevronDown, Filter, Download } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import toast from 'react-hot-toast';
@@ -151,6 +151,17 @@ export default function Inventory() {
           }}>
           <Plus size={16} />
           Nuevo Producto
+        </button>
+        <button onClick={async () => {
+          try {
+            const res = await api.get('/exports/inventory/excel', { responseType: 'blob' });
+            const url = URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement('a'); a.href = url;
+            a.download = 'inventario.xlsx'; a.click(); URL.revokeObjectURL(url);
+          } catch { toast.error('Error exportando'); }
+        }}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+          <Download size={14} />Excel
         </button>
       </div>
 
