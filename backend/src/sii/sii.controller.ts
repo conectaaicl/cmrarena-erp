@@ -47,9 +47,15 @@ export class SIIController {
     return this.siiService.getDTEs(tenantId, search);
   }
 
+  @Get('dtes/pending-sales')
+  @ApiOperation({ summary: 'Ventas sin DTE emitido' })
+  getPendingSales(@CurrentUser('tenantId') tenantId: string) {
+    return this.siiService.getPendingSales(tenantId);
+  }
+
   @Post('dtes/emit')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SALES, UserRole.ACCOUNTANT)
-  @ApiOperation({ summary: 'Emitir DTE (Boleta o Factura)' })
+  @ApiOperation({ summary: 'Generar DTE (XML preparado, sin envío al SII aún)' })
   emitDTE(
     @CurrentUser('tenantId') tenantId: string,
     @Body('saleId') saleId: string,
@@ -62,5 +68,23 @@ export class SIIController {
   @ApiOperation({ summary: 'Reintentar DTE rechazado' })
   retryDTE(@CurrentUser('tenantId') tenantId: string, @Param('id') id: string) {
     return this.siiService.retryDTE(tenantId, id);
+  }
+
+  @Get('cafs')
+  @ApiOperation({ summary: 'Listar CAFs (folios autorizados)' })
+  getCAFs(@CurrentUser('tenantId') tenantId: string) {
+    return this.siiService.getCAFs(tenantId);
+  }
+
+  @Post('caf')
+  @Roles(UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('caf'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Subir archivo CAF (XML de folios autorizados)' })
+  uploadCAF(
+    @CurrentUser('tenantId') tenantId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.siiService.uploadCAF(tenantId, file.buffer.toString('utf-8'));
   }
 }

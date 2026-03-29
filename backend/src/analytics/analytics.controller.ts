@@ -32,4 +32,10 @@ export class AnalyticsController {
   getTopClients(@CurrentUser('tenantId') tenantId: string) {
     return this.analyticsService.getTopClients(tenantId);
   }
+
+  @Get('quotations')
+  @ApiOperation({ summary: 'Estadísticas de cotizaciones' })
+  getQuotationStats(@CurrentUser('tenantId') tenantId: string) {
+    return this.analyticsService.getQuotationStats(tenantId);
+  }
 }

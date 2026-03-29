@@ -2,8 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
+  BarChart, Bar,
 } from 'recharts';
-import { TrendingUp, Users, Clock, FileText, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { TrendingUp, Users, Clock, FileText, AlertTriangle, Loader2, RefreshCw, CheckCircle, XCircle, Target } from 'lucide-react';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 
@@ -74,6 +75,10 @@ export default function Dashboard() {
   const { data: topClients } = useQuery({
     queryKey: ['analytics', 'top-clients'],
     queryFn: () => api.get('/analytics/top-clients').then(r => r.data.data),
+  });
+  const { data: quotStats } = useQuery({
+    queryKey: ['analytics', 'quotations'],
+    queryFn: () => api.get('/analytics/quotations').then(r => r.data.data ?? r.data),
   });
 
   if (isLoading) return (
@@ -202,6 +207,56 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Quotation Reports */}
+      {quotStats && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#8b949e', margin: 0 }}>Reporte de Cotizaciones — 6 meses</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            <KPICard title="Total Emitidas" value={quotStats.total} subtitle="Últimos 6 meses" icon={FileText} color="#8b5cf6" />
+            <KPICard title="Aprobadas" value={quotStats.approved} subtitle={`Tasa conversión: ${quotStats.conversionRate}%`} icon={CheckCircle} color="#22c55e" />
+            <KPICard title="Rechazadas" value={quotStats.rejected} subtitle="Sin conversión" icon={XCircle} color="#ef4444" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* Monthly trend chart */}
+            <div style={{ background: '#161b22', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '20px 22px' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', marginBottom: 18 }}>Evolución Mensual</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={quotStats.monthlyTrend || []} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={4}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#484f58' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#484f58' }} axisLine={false} tickLine={false} width={28} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="emitidas" name="Emitidas" fill="#8b5cf666" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="aprobadas" name="Aprobadas" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Top sellers */}
+            <div style={{ background: '#161b22', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '20px 22px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <Target size={15} color="#f59e0b" />
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#cdd9e5', margin: 0 }}>Ranking Vendedores</p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(quotStats.topSellers || []).slice(0, 5).map((s: any, i: number) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#484f58', flexShrink: 0 }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 500, color: '#cdd9e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</p>
+                      <p style={{ fontSize: 10, color: '#484f58', marginTop: 1 }}>{s.aprobadas}/{s.total} aprobadas</p>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#8b949e', flexShrink: 0 }}>${Number(s.monto).toLocaleString('es-CL')}</span>
+                  </div>
+                ))}
+                {(!quotStats.topSellers?.length) && (
+                  <p style={{ fontSize: 12, color: '#484f58', textAlign: 'center', padding: '16px 0' }}>Sin datos aún</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>

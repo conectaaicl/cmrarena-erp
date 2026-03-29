@@ -125,20 +125,13 @@ export class SIIService {
       resolucionNumero: siiConfig.resolutionNumber,
     });
 
-    // Send to SII (with signature if cert available)
+    // Generate XML (sign when cert is ready — envío al SII pendiente de trámite)
     let signedXml = xmlContent;
-    if (siiConfig.isConfigured && siiConfig.certFileUrl) {
-      // In production, load cert from storage
-      // signedXml = await this.xmlSigner.signXml(xmlContent, certBuffer, password);
-    }
+    // NOTE: Firma y envío al SII deshabilitados — pendiente tramitar folios CAF y certificado en producción
+    // Cuando esté listo: signedXml = await this.xmlSigner.signXml(xmlContent, certBuffer, password);
+    //                    siiClient.uploadDTE(signedXml, ...)
 
-    const { trackId, status } = await this.siiClient.uploadDTE(
-      signedXml,
-      siiConfig.rutEmpresa,
-      siiConfig.environment,
-    );
-
-    // Save DTE record
+    // Save DTE record as PENDIENTE (no envío aún)
     const dte = await this.prisma.dTE.create({
       data: {
         tenantId,
@@ -149,13 +142,91 @@ export class SIIService {
         amount: montoTotal,
         taxAmount: montoIVA,
         netAmount: montoNeto,
-        status: status as any,
-        trackId,
+        status: 'PENDIENTE',
+        trackId: null,
         xmlContent: signedXml,
       },
     });
 
     return dte;
+  }
+
+  async getPendingSales(tenantId: string) {
+    // Sales that don't have any non-cancelled DTE yet
+    const salesWithDTE = await this.prisma.dTE.findMany({
+      where: { tenantId, deletedAt: null, status: { not: 'ANULADO' } },
+      select: { saleId: true },
+    });
+    const salesWithDTEIds = [...new Set(salesWithDTE.map(d => d.saleId))];
+
+    return this.prisma.sale.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(salesWithDTEIds.length > 0 && { id: { notIn: salesWithDTEIds } }),
+      },
+      include: { client: { select: { name: true, rut: true } } },
+      orderBy: { date: 'desc' },
+      take: 50,
+    });
+  }
+
+  async uploadCAF(tenantId: string, xmlContent: string) {
+    // Parse CAF XML to extract folio range and type
+    const tipoMatch = xmlContent.match(/<TD>(\d+)<\/TD>/);
+    const desdeMatch = xmlContent.match(/<RNG>\s*<D>(\d+)<\/D>/);
+    const hastaMatch = xmlContent.match(/<RNG>.*?<H>(\d+)<\/H>/s);
+    const fechaMatch = xmlContent.match(/<FA>([\d-]+)<\/FA>/);
+
+    if (!tipoMatch || !desdeMatch || !hastaMatch) {
+      throw new BadRequestException('Archivo CAF inválido: no se pudo parsear el rango de folios');
+    }
+
+    const tipoSII = parseInt(tipoMatch[1]);
+    const fromFolio = parseInt(desdeMatch[1]);
+    const toFolio = parseInt(hastaMatch[1]);
+    const issuedAt = fechaMatch ? new Date(fechaMatch[1]) : new Date();
+
+    // Map SII tipo to DTEType enum
+    const dteTypeMap: Record<number, string> = {
+      33: 'FACTURA_ELECTRONICA',
+      39: 'BOLETA_ELECTRONICA',
+      61: 'NOTA_DE_CREDITO',
+      56: 'NOTA_DE_DEBITO',
+    };
+    const dteType = dteTypeMap[tipoSII];
+    if (!dteType) throw new BadRequestException(`Tipo de DTE ${tipoSII} no soportado`);
+
+    const siiConfig = await this.prisma.sIIConfig.findUnique({ where: { tenantId } });
+    if (!siiConfig) throw new NotFoundException('Configure el SII primero');
+
+    const caf = await this.prisma.cAF.create({
+      data: {
+        siiConfigId: siiConfig.id,
+        dteType: dteType as any,
+        fromFolio,
+        toFolio,
+        currentFolio: fromFolio,
+        xmlContent,
+        issuedAt,
+      },
+    });
+
+    return { ...caf, foliosDisponibles: toFolio - fromFolio + 1 };
+  }
+
+  async getCAFs(tenantId: string) {
+    const siiConfig = await this.prisma.sIIConfig.findUnique({
+      where: { tenantId },
+      include: { cafs: { orderBy: { createdAt: 'desc' } } },
+    });
+    if (!siiConfig) return [];
+    return siiConfig.cafs.map(c => ({
+      ...c,
+      foliosDisponibles: c.toFolio - c.currentFolio + 1,
+      foliosTotal: c.toFolio - c.fromFolio + 1,
+      porcentajeUsado: Math.round(((c.currentFolio - c.fromFolio) / (c.toFolio - c.fromFolio + 1)) * 100),
+    }));
   }
 
   async getDTEs(tenantId: string, search?: string) {
