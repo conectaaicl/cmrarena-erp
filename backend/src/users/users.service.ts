@@ -34,7 +34,7 @@ export class UsersService {
 
   async findAll(tenantId: string) {
     return this.prisma.user.findMany({
-      where: { tenantId, isActive: true },
+      where: { tenantId },
       select: this.select,
       orderBy: { firstName: 'asc' },
     });
