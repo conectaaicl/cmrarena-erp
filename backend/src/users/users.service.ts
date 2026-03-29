@@ -2,10 +2,14 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private email: EmailService,
+  ) {}
 
   private select = {
     id: true, email: true, firstName: true, lastName: true,
@@ -19,7 +23,9 @@ export class UsersService {
     if (existing) throw new ConflictException('Email ya registrado en esta empresa');
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    return this.prisma.user.create({
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+
+    const created = await this.prisma.user.create({
       data: {
         tenantId,
         email: dto.email.toLowerCase(),
@@ -30,6 +36,16 @@ export class UsersService {
       },
       select: this.select,
     });
+
+    // Enviar credenciales por email (no bloqueante)
+    this.email.sendWelcomeEmail({
+      to: dto.email.toLowerCase(),
+      firstName: dto.firstName,
+      tenantName: tenant?.name || 'ERP',
+      tempPassword: dto.password,
+    }).catch(() => {}); // ignorar error de email para no bloquear la respuesta
+
+    return created;
   }
 
   async findAll(tenantId: string) {
