@@ -32,4 +32,13 @@ export class UpdateTenantDto {
   @IsString() @IsOptional() primaryColor?: string;
   @IsOptional() taxRate?: number;
   @IsString() @IsOptional() logoUrl?: string;
+  @IsString() @IsOptional() domain?: string;
+  @IsString() @IsOptional() companyTagline?: string;
+  @IsString() @IsOptional() whatsapp?: string;
+  @IsString() @IsOptional() companyEmail?: string;
+  @IsString() @IsOptional() bankHolder?: string;
+  @IsString() @IsOptional() bankName?: string;
+  @IsString() @IsOptional() bankAccountType?: string;
+  @IsString() @IsOptional() bankRut?: string;
+  @IsString() @IsOptional() bankAccount?: string;
 }

@@ -16,10 +16,18 @@ model Tenant {
   slug         String   @unique
   name         String
   domain       String?  @unique
-  logoUrl      String?
-  primaryColor String   @default("#0f172a")
-  taxRate      Decimal  @default(19) @db.Decimal(5, 2)
-  isActive     Boolean  @default(true)
+  logoUrl          String?
+  primaryColor     String   @default("#0f172a")
+  taxRate          Decimal  @default(19) @db.Decimal(5, 2)
+  isActive         Boolean  @default(true)
+  companyTagline   String?
+  whatsapp         String?
+  companyEmail     String?
+  bankHolder       String?
+  bankName         String?
+  bankAccountType  String?
+  bankRut          String?
+  bankAccount      String?
   planTier     PlanTier @default(STARTER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

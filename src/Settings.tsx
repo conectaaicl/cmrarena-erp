@@ -170,20 +170,32 @@ export default function Settings() {
     onError: (e: any) => toast.error(e.response?.data?.message || 'Error al guardar'),
   });
 
+  const [logoUploading, setLogoUploading] = useState(false);
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
+    setLogoUploading(true);
     const fd = new FormData();
     fd.append('file', file);
     try {
       const res = await api.post('/files/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       const url = res.data.url || res.data.data?.url || res.data.data?.fileUrl;
-      if (url) setForm(f => ({ ...f, logoUrl: url }));
-      else throw new Error('no url');
+      if (url) {
+        setForm(f => ({ ...f, logoUrl: url }));
+        toast.success('Logo subido. Recuerda guardar la configuración.');
+      } else throw new Error('no url');
     } catch {
+      // Fallback: store as base64 (works when file server not configured)
       const reader = new FileReader();
-      reader.onloadend = () => setForm(f => ({ ...f, logoUrl: reader.result as string }));
+      reader.onloadend = () => {
+        setForm(f => ({ ...f, logoUrl: reader.result as string }));
+        toast.success('Logo listo. Recuerda guardar la configuración.');
+      };
       reader.readAsDataURL(file);
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -213,22 +225,34 @@ export default function Settings() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
                   <label style={labelStyle}>Logo</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 52, height: 52, borderRadius: 10, background: '#0d1117', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
-                      {form.logoUrl
-                        ? <img src={form.logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                        : <ImageIcon size={20} color="#484f58" />}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Preview */}
+                    <div style={{ width: '100%', height: 100, borderRadius: 10, background: '#1a2332', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 12 }}>
+                      {logoUploading
+                        ? <Loader2 size={24} color="#3b82f6" className="animate-spin" />
+                        : form.logoUrl
+                          ? <img src={form.logoUrl} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          : <div style={{ textAlign: 'center', color: '#484f58' }}>
+                              <ImageIcon size={24} style={{ margin: '0 auto 6px' }} />
+                              <p style={{ fontSize: 11 }}>Sin logo</p>
+                            </div>
+                      }
                     </div>
-                    <label style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 14px', fontSize: 12, color: '#8b949e', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Upload size={13} />Subir logo
-                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />
-                    </label>
-                    {form.logoUrl && (
-                      <button type="button" onClick={() => setForm(f => ({ ...f, logoUrl: '' }))}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f85149', fontSize: 12 }}>
-                        Quitar
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <label style={{ cursor: logoUploading ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 14px', fontSize: 12, color: '#8b949e', display: 'flex', alignItems: 'center', gap: 6, opacity: logoUploading ? 0.6 : 1 }}>
+                        {logoUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                        {logoUploading ? 'Subiendo...' : 'Subir logo'}
+                        <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" style={{ display: 'none' }} onChange={handleLogoUpload} disabled={logoUploading} />
+                      </label>
+                      {form.logoUrl && (
+                        <button type="button" onClick={() => setForm(f => ({ ...f, logoUrl: '' }))}
+                          style={{ background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', color: '#f85149', fontSize: 12 }}>
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 11, color: '#484f58' }}>PNG, SVG o WEBP recomendado. Fondo transparente o azul oscuro.</p>
                   </div>
                 </div>
                 <div>
