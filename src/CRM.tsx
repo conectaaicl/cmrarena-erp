@@ -1,561 +1,924 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Plus, Search, Mail, Phone, MapPin, FileText, Loader2,
-  Building2, User2, ChevronDown, Globe, CheckCircle, XCircle,
-  RefreshCw, LayoutGrid, List, X, ShoppingCart, Download, Trash2,
-} from 'lucide-react';
-import api from './api/axios';
-import { useAuthStore } from './store/authStore';
+import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
-// ── Status mapping ────────────────────────────────────────────────────────────
-const STATUS_OPTIONS: { label: string; value: string }[] = [
-  { label: 'Nuevo',              value: 'NUEVO' },
-  { label: 'Contactado',         value: 'CONTACTADO' },
-  { label: 'Cotización enviada', value: 'COTIZACION_ENVIADA' },
-  { label: 'Seguimiento',        value: 'SEGUIMIENTO' },
-  { label: 'Aprobado',           value: 'APROBADO' },
-  { label: 'Venta cerrada',      value: 'VENTA_CERRADA' },
-  { label: 'Perdido',            value: 'PERDIDO' },
-];
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  NUEVO:              { bg: 'rgba(59,130,246,0.15)',  color: '#60a5fa' },
-  CONTACTADO:         { bg: 'rgba(14,165,233,0.15)',  color: '#38bdf8' },
-  COTIZACION_ENVIADA: { bg: 'rgba(245,158,11,0.15)',  color: '#fbbf24' },
-  SEGUIMIENTO:        { bg: 'rgba(139,92,246,0.15)',  color: '#a78bfa' },
-  APROBADO:           { bg: 'rgba(34,197,94,0.15)',   color: '#4ade80' },
-  VENTA_CERRADA:      { bg: 'rgba(20,184,166,0.15)',  color: '#2dd4bf' },
-  PERDIDO:            { bg: 'rgba(239,68,68,0.15)',   color: '#f87171' },
+const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; probability: number }> = {
+  NUEVO:              { label: 'Nuevo',             color: '#6b7280', bg: '#f9fafb',   border: '#e5e7eb', probability: 5   },
+  CONTACTADO:         { label: 'Contactado',         color: '#3b82f6', bg: '#eff6ff',   border: '#bfdbfe', probability: 15  },
+  COTIZACION_ENVIADA: { label: 'Cotizacion Enviada', color: '#8b5cf6', bg: '#f5f3ff',   border: '#ddd6fe', probability: 30  },
+  SEGUIMIENTO:        { label: 'Seguimiento',        color: '#f59e0b', bg: '#fffbeb',   border: '#fde68a', probability: 40  },
+  APROBADO:           { label: 'Aprobado',           color: '#10b981', bg: '#ecfdf5',   border: '#a7f3d0', probability: 65  },
+  VENTA_CERRADA:      { label: 'Venta Cerrada',      color: '#059669', bg: '#d1fae5',   border: '#6ee7b7', probability: 100 },
+  PERDIDO:            { label: 'Perdido',            color: '#ef4444', bg: '#fef2f2',   border: '#fecaca', probability: 0   },
 };
 
-const statusLabel = (value: string) => STATUS_OPTIONS.find(o => o.value === value)?.label ?? value;
-const formatCLP = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+const STAGES = Object.keys(STAGE_CONFIG);
 
-const emptyForm = {
-  name: '', rut: '', email: '', phone: '', address: '',
-  city: '', giro: '', website: '', contactName: '', status: 'NUEVO', notes: '',
-};
+function scoreColor(score: number) {
+  if (score >= 70) return '#10b981';
+  if (score >= 40) return '#f59e0b';
+  return '#ef4444';
+}
 
-const cardStyle: React.CSSProperties = {
-  background: '#161b22',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 12,
-};
+function fmtCLP(n: number) {
+  return '$' + Math.round(n).toLocaleString('es-CL');
+}
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: '#0d1117',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontSize: 13,
-  color: '#cdd9e5',
-  outline: 'none',
-  boxSizing: 'border-box',
-};
+function fmtInitials(name: string) {
+  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
 
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 12, fontWeight: 500,
-  color: '#6e7681', marginBottom: 4,
-};
+// ─── RUT Utilities ──────────────────────────────────────────────────────────
 
-// ── SEO Check Modal ───────────────────────────────────────────────────────────
-function SeoModal({ clientId, clientName, onClose }: { clientId: string; clientName: string; onClose: () => void }) {
-  const { data: seo, isLoading, refetch } = useQuery({
-    queryKey: ['seo', clientId],
-    queryFn: () => api.get(`/clients/${clientId}/seo`).then(r => r.data.data ?? r.data),
-    staleTime: 0,
-  });
+function validateRut(rut: string): boolean {
+  const clean = rut.replace(/[.\-]/g, '').toUpperCase();
+  if (clean.length < 2) return false;
+  const body = clean.slice(0, -1);
+  const dv = clean.slice(-1);
+  if (!/^\d+$/.test(body)) return false;
+  let sum = 0;
+  let multiplier = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    sum += parseInt(body[i]) * multiplier;
+    multiplier = multiplier === 7 ? 2 : multiplier + 1;
+  }
+  const remainder = sum % 11;
+  const computed = 11 - remainder;
+  let expected: string;
+  if (computed === 11) expected = '0';
+  else if (computed === 10) expected = 'K';
+  else expected = computed.toString();
+  return dv === expected;
+}
 
+function formatRut(value: string): string {
+  const clean = value.replace(/[^0-9kK]/g, '');
+  if (clean.length <= 1) return clean.toUpperCase();
+  const body = clean.slice(0, -1);
+  const dv = clean.slice(-1).toUpperCase();
+  const formatted = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return formatted + '-' + dv;
+}
+
+// ─── Interfaces ──────────────────────────────────────────────────────────────
+
+interface Client {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  status: string;
+  score: number;
+  pipelineValue: number;
+  totalRevenue: number;
+  _count: { quotations: number; sales: number };
+}
+
+interface PipelineColumn {
+  clients: Client[];
+  count: number;
+  totalValue: number;
+  probability: number;
+  weightedValue: number;
+}
+
+interface NewClientForm {
+  name: string;
+  rut: string;
+  email: string;
+  phone: string;
+  giro: string;
+  address: string;
+  city: string;
+  commune: string;
+  contactName: string;
+  notes: string;
+}
+
+// ─── Sortable Client Card ───────────────────────────────────────────────────
+
+function ClientCard({ client, onClick, isDragging }: { client: Client; onClick: () => void; isDragging?: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: client.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div style={{ ...cardStyle, width: '100%', maxWidth: 520, padding: 28 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-          <div>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#f0f6fc', margin: 0 }}>Verificación SEO</h2>
-            <p style={{ fontSize: 12, color: '#6e7681', marginTop: 4 }}>{clientName}</p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#484f58', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>✕</button>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} onClick={onClick}>
+      <CardContent client={client} />
+    </div>
+  );
+}
+
+function CardContent({ client }: { client: Client }) {
+  return (
+    <div style={{
+      background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10,
+      padding: '12px 14px', marginBottom: 8, cursor: 'grab',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.06)', transition: 'box-shadow 0.15s',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0,
+        }}>
+          {fmtInitials(client.name)}
         </div>
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '32px 0' }}>
-            <Loader2 size={32} color="#3b82f6" className="animate-spin" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {client.name}
           </div>
-        ) : !seo?.hasWebsite ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
-            <Globe size={36} style={{ color: '#484f58', margin: '0 auto 12px' }} />
-            <p style={{ fontSize: 14, color: '#8b949e' }}>Este cliente no tiene sitio web registrado.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ padding: 16, borderRadius: 10, background: seo.indexable ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${seo.indexable ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                {seo.indexable ? <CheckCircle size={18} color="#4ade80" /> : <XCircle size={18} color="#f87171" />}
-                <span style={{ fontSize: 14, fontWeight: 700, color: seo.indexable ? '#4ade80' : '#f87171' }}>
-                  {seo.indexable ? 'Indexable por Google' : 'NO indexable por Google'}
-                </span>
-              </div>
-              <a href={seo.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#60a5fa', wordBreak: 'break-all' }}>{seo.url}</a>
+          {client.email && (
+            <div style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {client.email}
             </div>
-            <button onClick={() => refetch()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#21262d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#cdd9e5', cursor: 'pointer' }}>
-              <RefreshCw size={13} /> Volver a verificar
-            </button>
+          )}
+        </div>
+        <div style={{
+          background: scoreColor(client.score) + '18', color: scoreColor(client.score),
+          border: '1px solid ' + scoreColor(client.score) + '40',
+          borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0,
+        }}>
+          {client.score}
+        </div>
+      </div>
+      {client.pipelineValue > 0 && (
+        <div style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>{fmtCLP(client.pipelineValue)}</div>
+      )}
+      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>{client._count.quotations} cot.</span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>{client._count.sales} vent.</span>
+        {client.phone && <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>Tel</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pipeline Column ────────────────────────────────────────────────────────
+
+function PipelineColumnView({ stage, column, onCardClick }: {
+  stage: string; column: PipelineColumn; onCardClick: (client: Client) => void;
+}) {
+  const cfg = STAGE_CONFIG[stage];
+  const ids = column.clients.map(c => c.id);
+  return (
+    <div style={{
+      width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column',
+      background: cfg.bg, border: '1px solid ' + cfg.border, borderRadius: 12, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid ' + cfg.border, background: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color }} />
+            <span style={{ fontWeight: 700, fontSize: 12, color: '#111' }}>{cfg.label}</span>
           </div>
+          <span style={{ background: cfg.color + '18', color: cfg.color, borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
+            {column.count}
+          </span>
+        </div>
+        {column.totalValue > 0 && (
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+            {fmtCLP(column.totalValue)}
+            {cfg.probability > 0 && (
+              <span style={{ color: cfg.color, marginLeft: 4 }}>
+                &rarr; {fmtCLP(column.weightedValue)} ({cfg.probability}%)
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '10px 8px', flex: 1, overflowY: 'auto', minHeight: 80, maxHeight: 'calc(100vh - 300px)' }}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          {column.clients.map(client => (
+            <ClientCard key={client.id} client={client} onClick={() => onCardClick(client)} />
+          ))}
+        </SortableContext>
+        {column.clients.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#d1d5db', fontSize: 12, paddingTop: 20 }}>Arrastra aqui</div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Client Detail Slide-over ──────────────────────────────────────────────────
-function ClientDetail({ client, onClose, onStatusChange }: { client: any; onClose: () => void; onStatusChange: (id: string, status: string) => void }) {
-  const st = STATUS_COLORS[client.status] || { bg: 'rgba(255,255,255,0.06)', color: '#8b949e' };
+// ─── Client Detail Slide-Over ───────────────────────────────────────────────
 
-  const { data: quotations = [] } = useQuery({
-    queryKey: ['quotations-client', client.id],
-    queryFn: () => api.get('/quotations').then(r => (r.data.data ?? r.data).filter((q: any) => q.clientId === client.id || q.client?.id === client.id)),
-  });
+function ClientSlideOver({ client, onClose, onStatusChange }: {
+  client: Client; onClose: () => void; onStatusChange: (clientId: string, status: string) => void;
+}) {
+  const [aiAction, setAiAction] = useState<any>(null);
+  const [creditRisk, setCreditRisk] = useState<any>(null);
+  const [loadingAi, setLoadingAi] = useState(false);
 
-  const { data: sales = [] } = useQuery({
-    queryKey: ['sales-client', client.id],
-    queryFn: () => api.get('/sales').then(r => (r.data.data ?? r.data).filter((s: any) => s.clientId === client.id || s.client?.id === client.id)),
-  });
+  useEffect(() => {
+    setLoadingAi(true);
+    Promise.all([
+      fetch(API_URL + '/api/v1/ai/next-action/' + client.id, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => r.json()),
+      fetch(API_URL + '/api/v1/ai/credit-risk/' + client.id, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => r.json()),
+    ]).then(([action, risk]) => { setAiAction(action); setCreditRisk(risk); })
+      .catch(() => {}).finally(() => setLoadingAi(false));
+  }, [client.id]);
 
-  const totalRevenue = (sales as any[]).reduce((acc, s) => acc + (Number(s.total) || 0), 0);
+  const urgencyColor = (u: string) => u === 'high' ? '#ef4444' : u === 'medium' ? '#f59e0b' : '#10b981';
 
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200 }} />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 40 }} />
       <div style={{
-        position: 'fixed', right: 0, top: 0, bottom: 0, width: 420,
-        background: '#161b22', borderLeft: '1px solid rgba(255,255,255,0.1)',
-        zIndex: 201, display: 'flex', flexDirection: 'column',
-        overflowY: 'auto',
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, background: '#fff', zIndex: 50,
+        boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', overflowY: 'auto',
       }}>
-        {/* Header */}
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 17, fontWeight: 700, color: '#f0f6fc', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</p>
-            <p style={{ fontSize: 12, color: '#484f58', fontFamily: 'monospace', margin: '4px 0 8px' }}>{client.rut}</p>
-            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: st.bg, color: st.color }}>
-              {statusLabel(client.status)}
-            </span>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#484f58', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
-        </div>
-
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {[
-            { label: 'Ventas', value: (sales as any[]).length, color: '#4ade80' },
-            { label: 'Cotizaciones', value: (quotations as any[]).length, color: '#a78bfa' },
-            { label: 'Revenue', value: formatCLP(totalRevenue), color: '#60a5fa' },
-          ].map(({ label, value, color }) => (
-            <div key={label} style={{ background: '#0d1117', borderRadius: 8, padding: '10px 12px' }}>
-              <p style={{ fontSize: 10, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 4px' }}>{label}</p>
-              <p style={{ fontSize: 15, fontWeight: 700, color, margin: 0 }}>{value}</p>
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 16,
+            }}>
+              {fmtInitials(client.name)}
             </div>
-          ))}
-        </div>
-
-        {/* Contact info */}
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Contacto</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {client.email && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><Mail size={13} color="#484f58" />{client.email}</div>}
-            {client.phone && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><Phone size={13} color="#484f58" />{client.phone}</div>}
-            {(client.address || client.city) && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><MapPin size={13} color="#484f58" />{[client.address, client.city].filter(Boolean).join(', ')}</div>}
-            {client.giro && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><Building2 size={13} color="#484f58" />{client.giro}</div>}
-            {client.contactName && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><User2 size={13} color="#484f58" />{client.contactName}</div>}
-            {client.website && <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#8b949e' }}><Globe size={13} color="#484f58" /><a href={client.website} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>{client.website}</a></div>}
-          </div>
-        </div>
-
-        {/* Change status */}
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Estado del pipeline</p>
-          <div style={{ position: 'relative' }}>
-            <select value={client.status} onChange={e => onStatusChange(client.id, e.target.value)}
-              style={{ ...inputStyle, paddingRight: 32, cursor: 'pointer', appearance: 'none' }}>
-              {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            <ChevronDown size={12} color="#484f58" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-          </div>
-        </div>
-
-        {/* Quotations */}
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Cotizaciones</p>
-          {(quotations as any[]).length === 0 ? (
-            <p style={{ fontSize: 12, color: '#484f58', fontStyle: 'italic' }}>Sin cotizaciones</p>
-          ) : (quotations as any[]).slice(0, 5).map((q: any) => (
-            <div key={q.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#cdd9e5', margin: 0 }}>Cot. #{String(q.number).padStart(4, '0')}</p>
-                <p style={{ fontSize: 11, color: '#484f58', margin: '2px 0 0' }}>{q.date ? new Date(q.date).toLocaleDateString('es-CL') : '—'}</p>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#f0f6fc', margin: 0 }}>{formatCLP(Number(q.total))}</p>
-                <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: '#8b949e' }}>{q.status}</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>{client.name}</div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: (STAGE_CONFIG[client.status]?.color ?? '#6b7280') + '18',
+                color: STAGE_CONFIG[client.status]?.color ?? '#6b7280',
+                borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600, marginTop: 2,
+              }}>
+                {STAGE_CONFIG[client.status]?.label}
               </div>
             </div>
-          ))}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af' }}>&#x2715;</button>
         </div>
 
-        {/* Sales */}
-        <div style={{ padding: '16px 24px' }}>
-          <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Ventas</p>
-          {(sales as any[]).length === 0 ? (
-            <p style={{ fontSize: 12, color: '#484f58', fontStyle: 'italic' }}>Sin ventas</p>
-          ) : (sales as any[]).slice(0, 5).map((s: any) => (
-            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <ShoppingCart size={13} color="#4ade80" />
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#cdd9e5', margin: 0 }}>Venta #{String(s.number || s.id).padStart(4, '0')}</p>
-                  <p style={{ fontSize: 11, color: '#484f58', margin: '2px 0 0' }}>{s.date ? new Date(s.date).toLocaleDateString('es-CL') : '—'}</p>
+        <div style={{ padding: 24, flex: 1 }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Contacto</div>
+            {client.email && <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Email: {client.email}</div>}
+            {client.phone && <div style={{ fontSize: 13, color: '#374151' }}>Tel: {client.phone}</div>}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Deal Score', value: String(client.score) + '/100', color: scoreColor(client.score) },
+              { label: 'Pipeline', value: fmtCLP(client.pipelineValue), color: '#6366f1' },
+              { label: 'Revenue', value: fmtCLP(client.totalRevenue), color: '#059669' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 10px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Mover etapa</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {STAGES.map(s => (
+                <button key={s} onClick={() => onStatusChange(client.id, s)} style={{
+                  padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  background: client.status === s ? STAGE_CONFIG[s].color : 'transparent',
+                  color: client.status === s ? '#fff' : STAGE_CONFIG[s].color,
+                  border: '1.5px solid ' + STAGE_CONFIG[s].color, transition: 'all 0.15s',
+                }}>
+                  {STAGE_CONFIG[s].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              Siguiente Mejor Accion (IA)
+            </div>
+            {loadingAi ? (
+              <div style={{ background: '#f9fafb', borderRadius: 10, padding: 14, color: '#9ca3af', fontSize: 13 }}>Analizando con IA...</div>
+            ) : aiAction ? (
+              <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#111', flex: 1 }}>{aiAction.action}</div>
+                  {aiAction.urgency && (
+                    <span style={{
+                      background: urgencyColor(aiAction.urgency) + '18', color: urgencyColor(aiAction.urgency),
+                      borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0, marginLeft: 8,
+                    }}>
+                      {aiAction.urgency === 'high' ? 'Alta' : aiAction.urgency === 'medium' ? 'Media' : 'Baja'}
+                    </span>
+                  )}
+                </div>
+                {aiAction.reason && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>{aiAction.reason}</div>}
+                {aiAction.suggestedMessage && (
+                  <div style={{ background: '#eff6ff', borderRadius: 8, padding: 10, fontSize: 12, color: '#1d4ed8', fontStyle: 'italic' }}>
+                    {aiAction.suggestedMessage}
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: '#d1d5db', marginTop: 6, textAlign: 'right' }}>
+                  {aiAction.source === 'ai' ? 'IA Groq' : 'Reglas'}
                 </div>
               </div>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#f0f6fc', margin: 0 }}>{formatCLP(Number(s.total))}</p>
+            ) : null}
+          </div>
+
+          {creditRisk && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Riesgo Crediticio
+              </div>
+              <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      width: 56, height: 56, borderRadius: '50%',
+                      border: '4px solid ' + scoreColor(100 - creditRisk.score),
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 16, fontWeight: 800, color: scoreColor(100 - creditRisk.score),
+                    }}>
+                      {creditRisk.score}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>score</div>
+                  </div>
+                  <div>
+                    <div style={{
+                      fontWeight: 800, fontSize: 16,
+                      color: creditRisk.level === 'BAJO' ? '#10b981' : creditRisk.level === 'MEDIO' ? '#f59e0b' : '#ef4444',
+                    }}>
+                      Riesgo {creditRisk.level}
+                    </div>
+                  </div>
+                </div>
+                {creditRisk.factors?.length > 0 && (
+                  <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+                    {creditRisk.factors.map((f: string, i: number) => (
+                      <li key={i} style={{ fontSize: 12, color: '#6b7280', marginBottom: 3 }}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-          ))}
+          )}
         </div>
 
-        {/* Activity Notes */}
-        <ActivityNotes clientId={client.id} />
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: 10 }}>
+          {client.phone && (
+            <a href={'https://wa.me/56' + client.phone?.replace(/\D/g, '')} target='_blank' rel='noopener noreferrer'
+              style={{ flex: 1, background: '#25d366', color: '#fff', border: 'none', borderRadius: 8, padding: '10px', textAlign: 'center', fontWeight: 600, fontSize: 13, textDecoration: 'none', cursor: 'pointer' }}>
+              WhatsApp
+            </a>
+          )}
+          {client.email && (
+            <a href={'mailto:' + client.email}
+              style={{ flex: 1, background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '10px', textAlign: 'center', fontWeight: 600, fontSize: 13, textDecoration: 'none', cursor: 'pointer' }}>
+              Email
+            </a>
+          )}
+        </div>
       </div>
     </>
   );
 }
 
-function ActivityNotes({ clientId }: { clientId: string }) {
-  const qc = useQueryClient();
-  const [text, setText] = useState('');
+// ─── List View ──────────────────────────────────────────────────────────────
 
-  const { data: notes = [] } = useQuery({
-    queryKey: ['client-notes', clientId],
-    queryFn: () => api.get(`/clients/${clientId}/notes`).then(r => r.data.data ?? r.data),
-  });
-
-  const addNote = useMutation({
-    mutationFn: (content: string) => api.post(`/clients/${clientId}/notes`, { content }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-notes', clientId] }); setText(''); },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Error'),
-  });
-
-  const deleteNote = useMutation({
-    mutationFn: (noteId: string) => api.delete(`/clients/${clientId}/notes/${noteId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['client-notes', clientId] }),
-  });
+function ListView({ clients, onCardClick }: { clients: Client[]; onCardClick: (c: Client) => void }) {
+  const [search, setSearch] = useState('');
+  const filtered = clients
+    .filter(c =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.email ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (c.phone ?? '').includes(search)
+    )
+    .sort((a, b) => b.score - a.score);
 
   return (
-    <div style={{ padding: '16px 24px 32px' }}>
-      <p style={{ fontSize: 11, color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Actividad / Notas</p>
-
-      {/* Add note */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={text} onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && text.trim()) addNote.mutate(text.trim()); }}
-          placeholder="Agregar nota (Enter para guardar)..."
-          style={{ flex: 1, background: '#0d1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#cdd9e5', outline: 'none' }} />
-        <button onClick={() => { if (text.trim()) addNote.mutate(text.trim()); }}
-          disabled={!text.trim() || addNote.isPending}
-          style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          + Agregar
-        </button>
+    <div>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f3f4f6' }}>
+        <input
+          type='text'
+          placeholder='Buscar por nombre, email o telefono...'
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ width: '100%', padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, color: '#111', outline: 'none', boxSizing: 'border-box' as const }}
+        />
       </div>
-
-      {/* Notes list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(notes as any[]).length === 0 && (
-          <p style={{ fontSize: 12, color: '#484f58', fontStyle: 'italic' }}>Sin actividad registrada</p>
-        )}
-        {(notes as any[]).map((n: any) => (
-          <div key={n.id} style={{ background: '#0d1117', borderRadius: 8, padding: '10px 12px', position: 'relative', group: true } as any}
-            onMouseEnter={e => { const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '1'; }}
-            onMouseLeave={e => { const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0'; }}>
-            <p style={{ fontSize: 13, color: '#cdd9e5', margin: '0 0 6px', lineHeight: 1.5 }}>{n.content}</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: '#484f58' }}>
-                {n.user?.firstName} {n.user?.lastName} · {new Date(n.createdAt).toLocaleString('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-              </span>
-              <button className="del-btn" onClick={() => deleteNote.mutate(n.id)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: '2px 4px', opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}>
-                <Trash2 size={11} />
-              </button>
-            </div>
-          </div>
-        ))}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+              {['Cliente', 'Etapa', 'Score', 'Pipeline', 'Revenue', 'Cot.', 'Vent.'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#6b7280', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(c => {
+              const cfg = STAGE_CONFIG[c.status];
+              return (
+                <tr key={c.id} onClick={() => onCardClick(c)}
+                  style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer', transition: 'background 0.1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
+                        {fmtInitials(c.name)}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#111' }}>{c.name}</div>
+                        {c.email && <div style={{ fontSize: 11, color: '#9ca3af' }}>{c.email}</div>}
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{ background: (cfg?.color ?? '#6b7280') + '18', color: cfg?.color ?? '#6b7280', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
+                      {cfg?.label}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{ fontWeight: 700, color: scoreColor(c.score), fontSize: 14 }}>{c.score}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#374151', fontWeight: 600 }}>{c.pipelineValue > 0 ? fmtCLP(c.pipelineValue) : '—'}</td>
+                  <td style={{ padding: '10px 12px', color: '#059669', fontWeight: 600 }}>{c.totalRevenue > 0 ? fmtCLP(c.totalRevenue) : '—'}</td>
+                  <td style={{ padding: '10px 12px', color: '#6b7280' }}>{c._count.quotations}</td>
+                  <td style={{ padding: '10px 12px', color: '#6b7280' }}>{c._count.sales}</td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: 13 }}>
+                  {search ? 'Sin resultados para "' + search + '"' : 'No hay clientes aun'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-// ── Main CRM ──────────────────────────────────────────────────────────────────
-export default function CRM() {
-  const { user } = useAuthStore();
-  const accentColor = user?.tenant?.primaryColor || '#3b82f6';
-  const qc = useQueryClient();
+// ─── New Client Modal ────────────────────────────────────────────────────────
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
-  const [isAdding, setIsAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [detailClient, setDetailClient] = useState<any | null>(null);
-  const [form, setForm] = useState({ ...emptyForm });
-  const [seoClientId, setSeoClientId] = useState<string | null>(null);
-  const [seoClientName, setSeoClientName] = useState('');
-  const [dragClientId, setDragClientId] = useState<string | null>(null);
+const EMPTY_FORM: NewClientForm = {
+  name: '', rut: '', email: '', phone: '',
+  giro: '', address: '', city: '', commune: '', contactName: '', notes: '',
+};
 
-  const { data: clients = [], isLoading } = useQuery({
-    queryKey: ['clients', searchTerm],
-    queryFn: () => api.get(`/clients${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`).then(r => r.data.data ?? r.data),
-  });
+function NewClientModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [form, setForm] = useState<NewClientForm>(EMPTY_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof NewClientForm, string>>>({});
+  const [saving, setSaving] = useState(false);
 
-  const invalidateClients = () => {
-    qc.invalidateQueries({ queryKey: ['clients'] });
-    qc.invalidateQueries({ queryKey: ['clients-all'] });
+  const set = (key: keyof NewClientForm, value: string) => {
+    setForm(f => ({ ...f, [key]: value }));
+    if (errors[key]) setErrors(e => ({ ...e, [key]: '' }));
   };
 
-  const createMutation = useMutation({
-    mutationFn: (data: typeof emptyForm) => api.post('/clients', data),
-    onSuccess: () => { invalidateClients(); toast.success('Cliente creado'); setIsAdding(false); setForm({ ...emptyForm }); },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Error al crear cliente'),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<typeof emptyForm> }) => api.patch(`/clients/${id}`, data),
-    onSuccess: () => { invalidateClients(); toast.success('Cliente actualizado'); setEditingId(null); },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Error al actualizar'),
-  });
-
-  const handleStatusChange = (id: string, status: string) => {
-    setEditingId(id);
-    updateMutation.mutate({ id, data: { status } });
-    // Update detailClient if open
-    if (detailClient?.id === id) setDetailClient((c: any) => c ? { ...c, status } : c);
+  const handleRutChange = (value: string) => {
+    set('rut', formatRut(value));
   };
 
-  const handleDrop = (status: string) => {
-    if (!dragClientId) return;
-    handleStatusChange(dragClientId, status);
-    setDragClientId(null);
+  const validate = (): boolean => {
+    const e: Partial<Record<keyof NewClientForm, string>> = {};
+    if (!form.name.trim()) e.name = 'El nombre es requerido';
+    if (!form.rut.trim()) {
+      e.rut = 'El RUT es requerido';
+    } else if (!validateRut(form.rut)) {
+      e.rut = 'RUT invalido — verifica el formato (ej: 12.345.678-9)';
+    }
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Email invalido';
+    }
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.rut) return toast.error('Nombre y RUT son obligatorios');
-    createMutation.mutate(form);
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const body: Record<string, string> = { name: form.name.trim(), rut: form.rut.trim() };
+      if (form.email.trim()) body.email = form.email.trim();
+      if (form.phone.trim()) body.phone = form.phone.trim();
+      if (form.giro.trim()) body.giro = form.giro.trim();
+      if (form.address.trim()) body.address = form.address.trim();
+      if (form.city.trim()) body.city = form.city.trim();
+      if (form.commune.trim()) body.commune = form.commune.trim();
+      if (form.contactName.trim()) body.contactName = form.contactName.trim();
+      if (form.notes.trim()) body.notes = form.notes.trim();
+
+      const res = await fetch(API_URL + '/api/v1/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const msg = (err as any).message;
+        if (Array.isArray(msg)) {
+          toast.error(msg[0]);
+        } else {
+          toast.error(msg || 'Error al crear cliente (' + res.status + ')');
+        }
+        return;
+      }
+
+      toast.success('Cliente creado correctamente');
+      onCreated();
+      onClose();
+    } catch {
+      toast.error('Error de conexion — intenta nuevamente');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const f = (label: string, key: keyof typeof emptyForm, opts?: { type?: string; required?: boolean; placeholder?: string }) => (
-    <div>
-      <label style={labelStyle}>{label}{opts?.required && <span style={{ color: '#f85149' }}> *</span>}</label>
-      <input type={opts?.type || 'text'} required={opts?.required} value={form[key] as string}
-        onChange={e => setForm({ ...form, [key]: e.target.value })} placeholder={opts?.placeholder} style={inputStyle} />
-    </div>
-  );
+  const inputCls = (hasError: boolean): React.CSSProperties => ({
+    width: '100%',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid ' + (hasError ? '#ef4444' : 'rgba(255,255,255,0.1)'),
+    borderRadius: 10,
+    padding: '11px 14px',
+    fontSize: 14,
+    color: '#f1f5f9',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+    transition: 'border-color 0.15s',
+  });
 
-  const filteredClients: any[] = (clients as any[]).filter((c: any) =>
-    !searchTerm ||
-    c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.rut?.includes(searchTerm)
-  );
-
-  // ── Client card (shared between list and kanban) ──
-  const ClientCard = ({ client, compact = false }: { client: any; compact?: boolean }) => {
-    const st = STATUS_COLORS[client.status] || { bg: 'rgba(255,255,255,0.06)', color: '#8b949e' };
-    return (
-      <div
-        draggable
-        onDragStart={() => setDragClientId(client.id)}
-        onDragEnd={() => setDragClientId(null)}
-        onClick={() => setDetailClient(client)}
-        style={{
-          background: compact ? '#161b22' : '#0d1117',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 10, padding: compact ? 12 : 16,
-          cursor: 'pointer', transition: 'border-color 0.2s, transform 0.1s',
-          marginBottom: compact ? 8 : 0,
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.06)'; }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: compact ? 6 : 10 }}>
-          <p style={{ fontSize: compact ? 12 : 13, fontWeight: 600, color: '#f0f6fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{client.name}</p>
-          {!compact && <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: st.bg, color: st.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{statusLabel(client.status)}</span>}
-        </div>
-        <p style={{ fontSize: 10, color: '#484f58', fontFamily: 'monospace', margin: '0 0 6px' }}>{client.rut}</p>
-        {client.email && <p style={{ fontSize: 11, color: '#6e7681', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</p>}
-        {!compact && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.04)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <select value={client.status} onChange={e => handleStatusChange(client.id, e.target.value)}
-                disabled={updateMutation.isPending && editingId === client.id}
-                style={{ ...inputStyle, paddingRight: 28, cursor: 'pointer', appearance: 'none', fontSize: 11 }}>
-                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-              <ChevronDown size={11} color="#484f58" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            </div>
-            <button onClick={() => { setSeoClientId(client.id); setSeoClientName(client.name); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 7, padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: client.website ? '#60a5fa' : '#484f58', flexShrink: 0 }}>
-              <Globe size={11} /> SEO
-            </button>
-          </div>
-        )}
-      </div>
-    );
+  const labelCls: React.CSSProperties = {
+    display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8',
+    textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6,
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-
-      {seoClientId && <SeoModal clientId={seoClientId} clientName={seoClientName} onClose={() => setSeoClientId(null)} />}
-      {detailClient && <ClientDetail client={detailClient} onClose={() => setDetailClient(null)} onStatusChange={handleStatusChange} />}
-
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0f6fc', letterSpacing: '-0.4px', margin: 0 }}>CRM / Clientes</h1>
-          <p style={{ fontSize: 13, color: '#484f58', marginTop: 4 }}>
-            {isLoading ? '…' : `${filteredClients.length} cliente${filteredClients.length !== 1 ? 's' : ''}`}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {/* View toggle */}
-          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
-            {[['list', List], ['kanban', LayoutGrid]].map(([mode, Icon]: any) => (
-              <button key={mode} onClick={() => setViewMode(mode)}
-                style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', border: 'none', cursor: 'pointer', background: viewMode === mode ? 'rgba(255,255,255,0.1)' : 'transparent', color: viewMode === mode ? '#f0f6fc' : '#484f58', transition: 'all 0.15s' }}>
-                <Icon size={15} />
-              </button>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={async () => {
-              try {
-                const res = await api.get('/exports/clients/excel', { responseType: 'blob' });
-                const url = URL.createObjectURL(new Blob([res.data]));
-                const a = document.createElement('a'); a.href = url;
-                a.download = 'clientes.xlsx'; a.click(); URL.revokeObjectURL(url);
-              } catch { toast.error('Error exportando'); }
-            }}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-              <Download size={14} />Excel
-            </button>
-            <button onClick={async () => {
-              try {
-                const res = await api.get('/exports/clients/pdf', { responseType: 'blob' });
-                const url = URL.createObjectURL(new Blob([res.data]));
-                const a = document.createElement('a'); a.href = url;
-                a.download = 'clientes.pdf'; a.click(); URL.revokeObjectURL(url);
-              } catch { toast.error('Error exportando'); }
-            }}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.06)', color: '#8b949e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-              <Download size={14} />PDF
-            </button>
-            <button onClick={() => { setIsAdding(!isAdding); setForm({ ...emptyForm }); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              <Plus size={16} /> Nuevo Cliente
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Add form */}
-      {isAdding && (
-        <div style={{ ...cardStyle, padding: 24 }}>
-          <p style={{ fontSize: 15, fontWeight: 600, color: '#f0f6fc', marginBottom: 20, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Agregar Cliente</p>
-          <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-            {f('Nombre o Razón Social', 'name', { required: true, placeholder: 'Constructora Alfa SpA' })}
-            {f('RUT', 'rut', { required: true, placeholder: '76.123.456-7' })}
-            {f('Email', 'email', { type: 'email', placeholder: 'contacto@empresa.cl' })}
-            {f('Teléfono', 'phone', { placeholder: '+56 9 1234 5678' })}
-            {f('Dirección', 'address', { placeholder: 'Av. Providencia 1234' })}
-            {f('Ciudad', 'city', { placeholder: 'Santiago' })}
-            {f('Giro / Actividad', 'giro', { placeholder: 'Construcción y Obras Civiles' })}
-            {f('Sitio Web', 'website', { placeholder: 'https://empresa.cl' })}
-            {f('Nombre de Contacto', 'contactName', { placeholder: 'Juan Pérez' })}
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}
+      />
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1001,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        pointerEvents: 'none',
+      }}>
+        <div style={{
+          background: 'rgba(10,16,32,0.97)', border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 20, padding: 32, width: '100%', maxWidth: 540,
+          boxShadow: '0 25px 80px rgba(0,0,0,0.5)', backdropFilter: 'blur(20px)',
+          pointerEvents: 'auto' as const, maxHeight: '90vh', overflowY: 'auto' as const,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
             <div>
-              <label style={labelStyle}>Estado</label>
-              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.3px' }}>
+                Nuevo Cliente
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                Ingresa los datos del cliente para agregarlo al CRM
+              </p>
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={labelStyle}>Notas</label>
-              <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Requisitos especiales, observaciones..." style={{ ...inputStyle, resize: 'vertical' }} />
+            <button onClick={onClose} style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 8, width: 36, height: 36, cursor: 'pointer',
+              fontSize: 18, color: '#94a3b8',
+            }}>
+              &#x2715;
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit}>
+            {/* Required */}
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+              Datos requeridos
             </div>
-            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <button type="button" onClick={() => setIsAdding(false)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#8b949e', cursor: 'pointer' }}>Cancelar</button>
-              <button type="submit" disabled={createMutation.isPending}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, background: accentColor, border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: createMutation.isPending ? 0.6 : 1 }}>
-                {createMutation.isPending && <Loader2 size={14} />} Guardar Cliente
+            <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelCls}>Nombre / Razon Social *</label>
+                <input type='text' placeholder='Empresa ABC Ltda.' value={form.name}
+                  onChange={e => set('name', e.target.value)} style={inputCls(!!errors.name)} autoFocus />
+                {errors.name && <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>{errors.name}</div>}
+              </div>
+              <div>
+                <label style={labelCls}>RUT *</label>
+                <input type='text' placeholder='12.345.678-9' value={form.rut}
+                  onChange={e => handleRutChange(e.target.value)} style={inputCls(!!errors.rut)} maxLength={12} />
+                {errors.rut && <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>{errors.rut}</div>}
+              </div>
+            </div>
+
+            {/* Contacto */}
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+              Contacto
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+              <div>
+                <label style={labelCls}>Email</label>
+                <input type='email' placeholder='contacto@empresa.cl' value={form.email}
+                  onChange={e => set('email', e.target.value)} style={inputCls(!!errors.email)} />
+                {errors.email && <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>{errors.email}</div>}
+              </div>
+              <div>
+                <label style={labelCls}>Telefono</label>
+                <input type='tel' placeholder='+56 9 1234 5678' value={form.phone}
+                  onChange={e => set('phone', e.target.value)} style={inputCls(false)} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelCls}>Nombre de Contacto</label>
+                <input type='text' placeholder='Juan Perez' value={form.contactName}
+                  onChange={e => set('contactName', e.target.value)} style={inputCls(false)} />
+              </div>
+            </div>
+
+            {/* Informacion comercial */}
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+              Informacion Comercial
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelCls}>Giro / Actividad Comercial</label>
+                <input type='text' placeholder='Instalacion de cortinas y persianas' value={form.giro}
+                  onChange={e => set('giro', e.target.value)} style={inputCls(false)} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelCls}>Direccion</label>
+                <input type='text' placeholder='Av. Providencia 1234' value={form.address}
+                  onChange={e => set('address', e.target.value)} style={inputCls(false)} />
+              </div>
+              <div>
+                <label style={labelCls}>Ciudad</label>
+                <input type='text' placeholder='Santiago' value={form.city}
+                  onChange={e => set('city', e.target.value)} style={inputCls(false)} />
+              </div>
+              <div>
+                <label style={labelCls}>Comuna</label>
+                <input type='text' placeholder='Providencia' value={form.commune}
+                  onChange={e => set('commune', e.target.value)} style={inputCls(false)} />
+              </div>
+            </div>
+
+            {/* Notas */}
+            <div style={{ marginBottom: 28 }}>
+              <label style={labelCls}>Notas / Observaciones</label>
+              <textarea placeholder='Informacion adicional...' value={form.notes}
+                onChange={e => set('notes', e.target.value)} rows={3}
+                style={{ ...inputCls(false), resize: 'vertical' as const, fontFamily: 'inherit', minHeight: 80 }} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button type='button' onClick={onClose} style={{
+                padding: '11px 22px', borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.04)', color: '#94a3b8',
+                fontWeight: 600, fontSize: 14, cursor: 'pointer',
+              }}>
+                Cancelar
+              </button>
+              <button type='submit' disabled={saving} style={{
+                padding: '11px 28px', borderRadius: 10, border: 'none',
+                background: saving ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg, #6366f1, #7c3aed)',
+                color: '#fff', fontWeight: 700, fontSize: 14,
+                cursor: saving ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s',
+              }}>
+                {saving ? 'Guardando...' : '+ Crear Cliente'}
               </button>
             </div>
           </form>
         </div>
-      )}
-
-      {/* Search */}
-      <div style={{ ...cardStyle, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Search size={15} color="#484f58" />
-        <input type="text" placeholder="Buscar por nombre o RUT..." value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          style={{ ...inputStyle, border: 'none', background: 'transparent', padding: '4px 0', flex: 1 }} />
       </div>
+    </>
+  );
+}
 
-      {isLoading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={28} color="#3b82f6" className="animate-spin" /></div>
-      ) : viewMode === 'list' ? (
-        /* ── LIST VIEW ── */
-        <div style={{ ...cardStyle, padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {filteredClients.map((client: any) => <ClientCard key={client.id} client={client} />)}
-            {filteredClients.length === 0 && (
-              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#484f58' }}>
-                <User2 size={36} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
-                <p style={{ fontSize: 13 }}>{searchTerm ? 'No se encontraron clientes.' : 'Aún no hay clientes registrados.'}</p>
-              </div>
-            )}
+// ─── Main CRM Page ──────────────────────────────────────────────────────────
+
+export default function CRM() {
+  const [pipeline, setPipeline] = useState<Record<string, PipelineColumn>>({});
+  const [forecastRevenue, setForecastRevenue] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'kanban' | 'list'>('kanban');
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
+  const [showNewClient, setShowNewClient] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const token = localStorage.getItem('token');
+  const headers = { Authorization: 'Bearer ' + token };
+
+  const fetchPipeline = useCallback(async () => {
+    try {
+      const res = await fetch(API_URL + '/api/v1/crm/pipeline', { headers });
+      const data = await res.json();
+      setPipeline(data.pipeline ?? {});
+      setForecastRevenue(data.forecastRevenue ?? 0);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPipeline(); }, [fetchPipeline]);
+
+  const findStage = (clientId: string) => {
+    for (const stage of STAGES) {
+      if (pipeline[stage]?.clients.find(c => c.id === clientId)) return stage;
+    }
+    return null;
+  };
+
+  const handleDragStart = (event: DragStartEvent) => { setActiveId(event.active.id as string); };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+    const fromStage = findStage(active.id as string);
+    const toStage = STAGES.includes(over.id as string)
+      ? (over.id as string)
+      : findStage(over.id as string);
+    if (!fromStage || !toStage || fromStage === toStage) return;
+    const client = pipeline[fromStage].clients.find(c => c.id === active.id)!;
+    setPipeline(prev => {
+      const next = { ...prev };
+      next[fromStage] = { ...next[fromStage], clients: next[fromStage].clients.filter(c => c.id !== active.id), count: next[fromStage].count - 1 };
+      next[toStage] = { ...next[toStage], clients: [{ ...client, status: toStage }, ...next[toStage].clients], count: next[toStage].count + 1 };
+      return next;
+    });
+    await fetch(API_URL + '/api/v1/crm/clients/' + active.id + '/status', {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: toStage }),
+    }).catch(() => fetchPipeline());
+  };
+
+  const handleStatusChange = async (clientId: string, status: string) => {
+    if (selectedClient) setSelectedClient({ ...selectedClient, status });
+    await fetch(API_URL + '/api/v1/crm/clients/' + clientId + '/status', {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    fetchPipeline();
+  };
+
+  const handleRecalculate = async () => {
+    setRecalculating(true);
+    await fetch(API_URL + '/api/v1/crm/scores/recalculate', { method: 'POST', headers });
+    await fetchPipeline();
+    setRecalculating(false);
+  };
+
+  const allClients = STAGES.flatMap(s => pipeline[s]?.clients ?? []);
+  const activeClient = activeId ? allClients.find(c => c.id === activeId) : null;
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>&#x1F3AF;</div>
+          <div style={{ color: '#9ca3af' }}>Cargando pipeline...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '24px', minHeight: '100%', background: '#f8f9fb' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#111', letterSpacing: '-0.5px' }}>
+            Pipeline CRM
+          </h1>
+          <div style={{ fontSize: 14, color: '#6b7280', marginTop: 4 }}>
+            {allClients.length} clientes &middot; Forecast:{' '}
+            <span style={{ color: '#059669', fontWeight: 700 }}>{fmtCLP(forecastRevenue)}</span>
           </div>
         </div>
-      ) : (
-        /* ── KANBAN VIEW ── */
-        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
-          {STATUS_OPTIONS.map(({ label, value }) => {
-            const colClients = filteredClients.filter((c: any) => c.status === value);
-            const colColor = STATUS_COLORS[value]?.color || '#8b949e';
-            return (
-              <div
-                key={value}
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => handleDrop(value)}
-                style={{
-                  minWidth: 220, maxWidth: 220,
-                  background: '#161b22',
-                  border: `1px solid rgba(255,255,255,0.07)`,
-                  borderRadius: 12, padding: 12,
-                  flexShrink: 0,
-                  transition: 'border-color 0.2s',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: colColor, margin: 0 }}>{label}</p>
-                  <span style={{ fontSize: 11, background: `${colColor}22`, color: colColor, padding: '2px 7px', borderRadius: 10, fontWeight: 700 }}>{colClients.length}</span>
-                </div>
-                {colClients.map((client: any) => <ClientCard key={client.id} client={client} compact />)}
-                {colClients.length === 0 && (
-                  <div style={{ border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8, padding: '20px 0', textAlign: 'center', fontSize: 11, color: '#484f58' }}>
-                    Sin clientes
-                  </div>
-                )}
-              </div>
-            );
-          })}
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', background: '#e5e7eb', borderRadius: 8, padding: 2 }}>
+            {(['kanban', 'list'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)} style={{
+                padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: view === v ? '#fff' : 'transparent',
+                color: view === v ? '#111' : '#6b7280',
+                fontWeight: view === v ? 700 : 400,
+                fontSize: 13,
+                boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s',
+              }}>
+                {v === 'kanban' ? 'Kanban' : 'Lista'}
+              </button>
+            ))}
+          </div>
+
+          <button onClick={handleRecalculate} disabled={recalculating} style={{
+            padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: '#6366f1', color: '#fff', fontWeight: 600, fontSize: 13,
+            opacity: recalculating ? 0.7 : 1, transition: 'opacity 0.15s',
+          }}>
+            {recalculating ? 'Calculando...' : 'Recalcular Scores'}
+          </button>
+
+          <button onClick={() => setShowNewClient(true)} style={{
+            padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: 'linear-gradient(135deg, #6366f1, #7c3aed)', color: '#fff', fontWeight: 700, fontSize: 13,
+            boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+          }}>
+            + Nuevo Cliente
+          </button>
         </div>
+      </div>
+
+      {forecastRevenue > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', borderRadius: 12, padding: '14px 20px', marginBottom: 20,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+        }}>
+          <div>
+            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: 600 }}>FORECAST PONDERADO TOTAL</div>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 24, letterSpacing: '-0.5px' }}>{fmtCLP(forecastRevenue)}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            {STAGES.filter(s => s !== 'PERDIDO' && (pipeline[s]?.count ?? 0) > 0).map(s => (
+              <div key={s} style={{ textAlign: 'center' }}>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{pipeline[s]?.count}</div>
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>{STAGE_CONFIG[s].label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === 'kanban' ? (
+        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 16 }}>
+            {STAGES.map(stage => (
+              <PipelineColumnView
+                key={stage}
+                stage={stage}
+                column={pipeline[stage] ?? { clients: [], count: 0, totalValue: 0, probability: 0, weightedValue: 0 }}
+                onCardClick={setSelectedClient}
+              />
+            ))}
+          </div>
+          <DragOverlay>
+            {activeClient ? (
+              <div style={{ opacity: 0.95, transform: 'rotate(2deg)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', borderRadius: 10, width: 220 }}>
+                <CardContent client={activeClient} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+          <ListView clients={allClients} onCardClick={setSelectedClient} />
+        </div>
+      )}
+
+      {selectedClient && (
+        <ClientSlideOver
+          client={selectedClient}
+          onClose={() => setSelectedClient(null)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
+
+      {showNewClient && (
+        <NewClientModal
+          onClose={() => setShowNewClient(false)}
+          onCreated={() => fetchPipeline()}
+        />
       )}
     </div>
   );

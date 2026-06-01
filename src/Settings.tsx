@@ -39,6 +39,7 @@ const emptyForm = {
   primaryColor: '#0f172a', resendApiKey: '', logoUrl: '',
   companyTagline: '', whatsapp: '', companyEmail: '',
   bankHolder: '', bankName: '', bankAccountType: '', bankRut: '', bankAccount: '',
+  companyWebsite: '',
 };
 
 const ROLES = ['ADMIN', 'MANAGER', 'SALES', 'INVENTORY', 'ACCOUNTANT'] as const;
@@ -136,6 +137,7 @@ export default function Settings() {
         bankAccountType: s.bankAccountType || '',
         bankRut:         s.bankRut         || '',
         bankAccount:     s.bankAccount     || '',
+        companyWebsite:  s.companyWebsite  || '',
       });
     }
   }, [settings, user]);
@@ -161,6 +163,7 @@ export default function Settings() {
             bankAccountType: updated.bankAccountType ?? form.bankAccountType,
             bankRut:         updated.bankRut         ?? form.bankRut,
             bankAccount:     updated.bankAccount     ?? form.bankAccount,
+            companyWebsite:  updated.companyWebsite  ?? form.companyWebsite,
           },
         });
       }
@@ -325,6 +328,12 @@ export default function Settings() {
                     placeholder="contacto@empresa.cl" />
                 </div>
               </div>
+              <div style={{ marginTop: 16 }}>
+                <label style={labelStyle}>Sitio Web</label>
+                <input type="url" style={inputStyle} value={form.companyWebsite}
+                  onChange={e => setForm(f => ({ ...f, companyWebsite: e.target.value }))}
+                  placeholder="https://www.tuempresa.cl" />
+              </div>
             </div>
 
             {/* Datos bancarios */}
@@ -367,10 +376,9 @@ export default function Settings() {
             {/* Integraciones */}
             <div style={{ gridColumn: '1/-1', paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               {sectionTitle(<Mail size={14} color="#6e7681" />, 'Integraciones')}
-              <div>
-                <label style={labelStyle}>Resend API Key (envío de cotizaciones por email)</label>
-                <input type="password" style={inputStyle} value={form.resendApiKey}
-                  onChange={e => setForm(f => ({ ...f, resendApiKey: e.target.value }))} placeholder="re_..." />
+              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '12px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#6366f1', marginBottom: 4 }}>Correos enviados via mail.conectaai.cl</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>Configurado automaticamente. No requiere clave adicional.</div>
               </div>
             </div>
           </div>

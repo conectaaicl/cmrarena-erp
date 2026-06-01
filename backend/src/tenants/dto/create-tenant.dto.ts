@@ -41,4 +41,5 @@ export class UpdateTenantDto {
   @IsString() @IsOptional() bankAccountType?: string;
   @IsString() @IsOptional() bankRut?: string;
   @IsString() @IsOptional() bankAccount?: string;
+  @IsString() @IsOptional() companyWebsite?: string;
 }

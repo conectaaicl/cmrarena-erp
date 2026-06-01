@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Body, Query, Res, Param,
+  Controller, Get, Post, Delete, Body, Query, Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -91,5 +91,20 @@ export class SeoController {
   @ApiOperation({ summary: 'Calculadora de valor del tráfico orgánico vs Google Ads' })
   getValueCalculator(@CurrentUser('tenantId') tenantId: string) {
     return this.seoService.getValueCalculator(tenantId);
+  }
+
+  @Post('ai/blog-outline')
+  @ApiOperation({ summary: 'Generar outline de artículo de blog con IA (Claude)' })
+  generateBlogOutline(@Body('topic') topic: string) {
+    return this.seoService.generateBlogOutline(topic);
+  }
+
+  @Post('ai/product-description')
+  @ApiOperation({ summary: 'Generar ficha SEO de producto con IA (Claude)' })
+  generateProductDescription(
+    @Body('product') product: string,
+    @Body('tipo') tipo: string,
+  ) {
+    return this.seoService.generateProductDescription(product, tipo);
   }
 }

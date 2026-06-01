@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../email/email.service';
 
 // In-memory brute force tracker (use Redis in production for multi-instance)
 const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
@@ -19,6 +20,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    private email: EmailService,
   ) {}
 
   async login(dto: LoginDto, ip: string) {
@@ -115,6 +117,58 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    return { message: 'Contraseña actualizada correctamente' };
+  }
+
+
+  async forgotPassword(emailAddr: string, tenantSlug: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { slug: tenantSlug } });
+    if (!tenant) return; // silent — don't reveal tenant existence
+
+    const user = await this.prisma.user.findFirst({
+      where: { tenantId: tenant.id, email: emailAddr.toLowerCase(), isActive: true },
+    });
+    if (!user) return; // silent — don't reveal user existence
+
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetToken: token, passwordResetExpires: expires },
+    });
+
+    const frontendUrl = this.config.get('FRONTEND_URL', 'https://suite.conectaai.cl');
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+
+    try {
+      await this.email.sendPasswordResetEmail({
+        to: user.email,
+        firstName: user.firstName,
+        resetUrl,
+      });
+    } catch (err) {
+      // Log but don't expose error to caller
+      const { Logger } = require('@nestjs/common');
+      new Logger('AuthService').error(`Failed to send reset email: ${err.message}`);
+    }
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpires: { gt: new Date() },
+        isActive: true,
+      },
+    });
+    if (!user) throw new UnauthorizedException('Token inválido o expirado');
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, passwordResetToken: null, passwordResetExpires: null },
+    });
     return { message: 'Contraseña actualizada correctamente' };
   }
 

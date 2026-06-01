@@ -2,12 +2,14 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AccountingService } from '../accounting/accounting.service';
 
 @Injectable()
 export class SalesService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private accounting: AccountingService,
   ) {}
 
   async create(tenantId: string, userId: string, dto: CreateSaleDto) {
@@ -114,6 +116,9 @@ export class SalesService {
         data: { status: 'VENTA_CERRADA' },
       });
 
+      // Create accounting journal entry (fire and forget)
+      this.accounting.createSaleJournalEntry(tenantId, { ...sale, installationCost: 0 }).catch(() => {});
+
       // Notify payment received
       await this.notifications.create(tenantId, {
         type: 'PAGO_RECIBIDO',
@@ -165,6 +170,10 @@ export class SalesService {
     });
 
     if (paymentStatus === 'PAGADO') {
+      // Auto-create payment journal entry
+      const fullSale = await this.findOne(tenantId, id);
+      this.accounting.createPaymentJournalEntry(tenantId, fullSale).catch(() => {});
+
       await this.notifications.create(tenantId, {
         type: 'PAGO_RECIBIDO',
         title: 'Pago confirmado',

@@ -72,6 +72,7 @@ export default function Quotations() {
   const companyTagline = t?.companyTagline || '';
   const whatsapp       = t?.whatsapp       || '';
   const companyEmail   = t?.companyEmail   || '';
+  const companyWebsite = t?.companyWebsite  || '';
   const bankHolder     = t?.bankHolder     || '';
   const bankName       = t?.bankName       || '';
   const bankAccountType= t?.bankAccountType|| '';
@@ -88,6 +89,10 @@ export default function Quotations() {
   const [selectedClient, setSelectedClient] = useState('');
   const [notes, setNotes] = useState('');
   const [installationCost, setInstallationCost] = useState('');
+  const [validUntil, setValidUntil] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0,10);
+  });
   const [items, setItems] = useState<ItemRow[]>([]);
 
   // Item add row state
@@ -246,6 +251,7 @@ export default function Quotations() {
       clientId: selectedClient,
       notes,
       installationCost: installationCost !== '' ? Number(installationCost) : undefined,
+      validUntil: validUntil || undefined,
       items: items.map(({ productId, quantity, unitPrice, width, height }) => ({
         productId, quantity, unitPrice,
         width: width !== '' ? Number(width) : undefined,
@@ -267,6 +273,7 @@ export default function Quotations() {
       setSelectedClient(detail.clientId);
       setNotes(detail.notes || '');
       setInstallationCost(Number(detail.installationCost ?? 0) > 0 ? String(detail.installationCost) : '');
+      setValidUntil(detail.validUntil ? new Date(detail.validUntil).toISOString().slice(0,10) : (() => { const d = new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); })());
       setItems((detail.items || []).map((it: any) => ({
         productId: it.productId,
         name: it.product?.name || '',
@@ -288,6 +295,7 @@ export default function Quotations() {
     setSelectedClient('');
     setNotes('');
     setInstallationCost('');
+    setValidUntil(() => { const d = new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); });
     setItems([]);
     setSelProduct('');
     setItemQty(1);
@@ -308,7 +316,7 @@ export default function Quotations() {
       const client = detail.client || {};
       const inst = Number(detail.installationCost ?? 0);
       const subtotalVal = Number(detail.subtotal ?? 0);
-      const taxVal = Number(detail.tax ?? 0);
+      const taxVal = Number(detail.taxAmount ?? detail.tax ?? 0);
       const totalVal = Number(detail.total ?? 0);
 
       printQuotation({
@@ -337,6 +345,7 @@ export default function Quotations() {
         total: totalVal,
         notes: detail.notes,
         installationCost: inst > 0 ? inst : undefined,
+        validUntil: detail.validUntil || undefined,
         companyName,
         companyTagline: companyTagline || undefined,
         logoUrl: logoUrl || undefined,
@@ -347,6 +356,7 @@ export default function Quotations() {
         bankAccountType: bankAccountType || undefined,
         bankRut: bankRut || undefined,
         bankAccount: bankAccount || undefined,
+        companyWebsite: companyWebsite || undefined,
       });
     } catch {
       toast.error('Error generando cotización');
@@ -399,8 +409,8 @@ export default function Quotations() {
             {editingId ? 'Editar Cotización' : 'Nueva Cotización'}
           </p>
 
-          {/* Client + Notes + Installation */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 160px', gap: 16, marginBottom: 16 }}>
+          {/* Client + Notes + Installation + validUntil */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 160px 160px', gap: 16, marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>Cliente <span style={{ color: '#f85149' }}>*</span></label>
               <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)}
@@ -419,6 +429,12 @@ export default function Quotations() {
               <input type="number" min="0" value={installationCost}
                 onChange={(e) => setInstallationCost(e.target.value)}
                 placeholder="0" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Válido hasta</label>
+              <input type="date" value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
+                style={inputStyle} />
             </div>
           </div>
 

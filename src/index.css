@@ -59,3 +59,22 @@ option { background: #161b22; }
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
 }
+
+/* ── Mobile responsive ── */
+@media (max-width: 767px) {
+  body, html { overflow-x: hidden; }
+
+  /* Prevent long text overflow in tables/cards */
+  td, th, .truncate-mobile { 
+    max-width: 150px; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    white-space: nowrap; 
+  }
+
+  /* Make modals/dialogs fit screen */
+  [role='dialog'], .modal, .dialog {
+    max-width: 95vw !important;
+    margin: 0 auto;
+  }
+}

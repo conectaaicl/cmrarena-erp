@@ -22,6 +22,12 @@ import { ExportsModule } from './exports/exports.module';
 import { SeoModule } from './seo/seo.module';
 import { TasksModule } from './tasks/tasks.module';
 import { SearchModule } from './search/search.module';
+import { AccountingModule } from './accounting/accounting.module';
+import { CrmModule } from './crm/crm.module';
+import { AiModule } from './ai/ai.module';
+import { DeliveriesModule } from './deliveries/deliveries.module';
+import { CaClientesModule } from './ca-clientes/ca-clientes.module';
+import { CaProyectosModule } from './ca-proyectos/ca-proyectos.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -52,6 +58,12 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     SeoModule,
     TasksModule,
     SearchModule,
+    AccountingModule,
+    CrmModule,
+    AiModule,
+    DeliveriesModule,
+    CaClientesModule,
+    CaProyectosModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -48,6 +48,29 @@ export class AuthController {
     return this.authService.logout(userId);
   }
 
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Solicitar recuperación de contraseña' })
+  forgotPassword(
+    @Body('email') email: string,
+    @Body('tenantSlug') tenantSlug: string,
+  ) {
+    return this.authService.forgotPassword(email, tenantSlug);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restablecer contraseña con token' })
+  resetPassword(
+    @Body('token') token: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    return this.authService.resetPassword(token, newPassword);
+  }
+
   @Get('me')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obtener usuario autenticado' })

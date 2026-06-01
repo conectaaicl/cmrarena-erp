@@ -316,6 +316,101 @@ export class SeoService {
     };
   }
 
+  // ── AI CONTENT GENERATION ─────────────────────────────────────
+
+  async generateBlogOutline(topic: string): Promise<any> {
+    const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
+    if (!apiKey) throw new BadRequestException('ANTHROPIC_API_KEY no configurado en el servidor');
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        system: `Eres un experto en contenido SEO para tiendas de cortinas en Chile.
+Genera un outline completo de artículo de blog en JSON puro (sin markdown, sin backticks, sin texto extra):
+{
+  "titulo_h1": "título principal optimizado para SEO",
+  "meta_descripcion": "meta descripción de máximo 155 caracteres",
+  "intro": "introducción de 80 palabras",
+  "secciones": [
+    {"h2": "subtítulo de sección", "contenido": "resumen del contenido de esa sección en 60 palabras"}
+  ],
+  "conclusion": "conclusión con llamado a acción a terrablinds.cl en 50 palabras",
+  "keyword_principal": "la keyword más importante del artículo",
+  "palabras_estimadas": 1200
+}`,
+        messages: [
+          {
+            role: 'user',
+            content: `Crea un outline de artículo sobre: "${topic}". Para la tienda Terrablinds.cl, mercado chileno. Responde SOLO con JSON válido.`,
+          },
+        ],
+      }),
+    });
+
+    const data = (await res.json()) as any;
+    if (data.error) throw new BadRequestException(data.error.message ?? 'Error al llamar a Claude');
+
+    const text = data.content?.map((b: any) => b.text || '').join('') ?? '';
+    try {
+      // strip markdown code fences if model adds them
+      const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      return JSON.parse(clean);
+    } catch {
+      throw new BadRequestException('La IA devolvió un formato inesperado. Intenta de nuevo.');
+    }
+  }
+
+  async generateProductDescription(product: string, tipo: string): Promise<any> {
+    const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
+    if (!apiKey) throw new BadRequestException('ANTHROPIC_API_KEY no configurado en el servidor');
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
+        system: `Eres experto en SEO y copywriting para tiendas de cortinas en Chile. Responde SOLO con JSON puro:
+{
+  "titulo_seo": "título SEO optimizado máximo 60 caracteres",
+  "meta_descripcion": "meta descripción máximo 155 caracteres",
+  "descripcion": "descripción del producto optimizada para SEO, 120 palabras",
+  "keyword_principal": "keyword principal",
+  "keywords_secundarias": ["kw1","kw2","kw3"],
+  "beneficios": ["beneficio 1","beneficio 2","beneficio 3","beneficio 4"]
+}`,
+        messages: [
+          {
+            role: 'user',
+            content: `Genera ficha SEO para: ${product} (tipo: ${tipo}). Tienda Terrablinds.cl, Chile. Solo JSON válido.`,
+          },
+        ],
+      }),
+    });
+
+    const data = (await res.json()) as any;
+    if (data.error) throw new BadRequestException(data.error.message ?? 'Error al llamar a Claude');
+
+    const text = data.content?.map((b: any) => b.text || '').join('') ?? '';
+    try {
+      const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      return JSON.parse(clean);
+    } catch {
+      throw new BadRequestException('La IA devolvió un formato inesperado. Intenta de nuevo.');
+    }
+  }
+
   private async getLatestDateRange(siteId: string): Promise<string | null> {
     const row = await this.prisma.seoKeyword.findFirst({
       where: { siteId },

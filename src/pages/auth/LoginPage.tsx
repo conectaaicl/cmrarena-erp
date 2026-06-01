@@ -168,11 +168,19 @@ export default function LoginPage() {
               {loading ? 'Verificando...' : 'Ingresar al sistema'}
             </button>
           </form>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <a
+              href={form.tenantSlug ? `/forgot-password?tenant=${form.tenantSlug}` : '/forgot-password'}
+              style={{ fontSize: 12, color: '#8b949e', textDecoration: 'none' }}
+            >
+              ¿Olvidaste tu contraseña?
+            </a>
+          </div>
         </div>
 
         {/* Demo hint */}
         <p style={{ textAlign: 'center', fontSize: 11, color: '#30363d', marginTop: 16 }}>
-          Demo: <span style={{ color: '#484f58' }}>terrablinds</span> · admin@terrablinds.cl · TerraBlinds2024!
+          Demo: <span style={{ color: '#484f58' }}>conectaai</span> · corp.conectaai@gmail.com · ConectaAI2026!
         </p>
       </div>
     </div>

@@ -9,15 +9,15 @@ services:
     container_name: cmrarena_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: cmrarena_dev
+      POSTGRES_DB: cmrarena_prod
       POSTGRES_USER: cmrarena
       POSTGRES_PASSWORD: CmrArena2024!
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cmrarena -d cmrarena_dev"]
+      test: ["CMD-SHELL", "pg_isready -U cmrarena -d cmrarena_prod"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,16 +32,16 @@ services:
     container_name: cmrarena_api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://cmrarena:CmrArena2024!@postgres:5432/cmrarena_dev
+      DATABASE_URL: postgresql://cmrarena:CmrArena2024!@postgres:5432/cmrarena_prod
       JWT_SECRET: jwt-secret-change-in-production-min-64-chars-required-here
       JWT_ACCESS_EXPIRES: 15m
       JWT_REFRESH_SECRET: refresh-secret-different-from-jwt-secret-change-in-prod
       JWT_REFRESH_EXPIRES: 7d
-      NODE_ENV: development
+      NODE_ENV: production
       PORT: 3000
       APP_URL: http://localhost:3000
-      FRONTEND_URL: http://localhost:5173
-      CORS_ORIGINS: http://localhost:5173
+      FRONTEND_URL: https://suite.conectaai.cl
+      CORS_ORIGINS: https://suite.conectaai.cl
       MAIL_HOST: mail.conectaai.cl
       MAIL_PORT: 587
       MAIL_SECURE: "false"
@@ -53,7 +53,7 @@ services:
       SII_CERT_ENCRYPTION_KEY: sii-key-32-chars-change-in-prod!!
       SII_MOCK_MODE: "true"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./backend/src:/app/src
       - uploads_data:/app/uploads
@@ -61,7 +61,7 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      sh -c "npx prisma migrate deploy && npx prisma db seed && npm run start:dev"
+      sh -c "npx prisma migrate deploy && npm run start:dev"
 
   # ──────────────────────────────────────────────
   # Frontend React

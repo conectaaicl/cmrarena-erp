@@ -1,0 +1,48 @@
+version: '3.9'
+
+services:
+  postgres_suite:
+    image: postgres:16-alpine
+    container_name: suite_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cmrarena_prod
+      POSTGRES_USER: cmrarena
+      POSTGRES_PASSWORD: CmrArena2024!
+    volumes:
+      - suite_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cmrarena -d cmrarena_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - suite_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: suite_api
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://cmrarena:CmrArena2024!@postgres_suite:5432/cmrarena_prod
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - suite_uploads:/app/uploads
+    depends_on:
+      postgres_suite:
+        condition: service_healthy
+    networks:
+      - suite_net
+
+volumes:
+  suite_postgres_data:
+  suite_uploads:
+
+networks:
+  suite_net:
+    driver: bridge

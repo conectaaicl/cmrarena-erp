@@ -28,6 +28,16 @@ const onRefreshed = (token: string) => {
   refreshSubscribers = [];
 };
 
+function clearAuthAndRedirect() {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  // Clear Zustand persisted state to prevent redirect loop:
+  // isAuthenticated stays true in storage after token removal,
+  // causing PublicRoute(/login) → redirect /dashboard → 401 → /login loop.
+  localStorage.removeItem('cmrarena-auth');
+  window.location.replace('/login');
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -36,9 +46,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = localStorage.getItem('refreshToken');
       if (!refreshToken) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
+        clearAuthAndRedirect();
         return Promise.reject(error);
       }
 
@@ -63,9 +71,7 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
       } catch {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
+        clearAuthAndRedirect();
         return Promise.reject(error);
       } finally {
         isRefreshing = false;

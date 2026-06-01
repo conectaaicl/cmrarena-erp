@@ -24,19 +24,15 @@ export class QuotationsController {
   }
 
   @Get(':id/pdf')
-  @ApiOperation({ summary: 'Descargar PDF de cotización' })
+  @ApiOperation({ summary: 'Redirige al template de impresion en el frontend (alta calidad)' })
   async getPdf(
     @CurrentUser('tenantId') tenantId: string,
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.quotationsService.generatePdf(tenantId, id);
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="cotizacion-${id}.pdf"`,
-      'Content-Length': buffer.length,
-    });
-    res.end(buffer);
+    // The frontend print template is higher quality; redirect there
+    const frontendUrl = process.env.FRONTEND_URL || 'https://suite.conectaai.cl';
+    return res.redirect(301, `${frontendUrl}/quotations?print=${id}`);
   }
 
   @Post()

@@ -12,6 +12,7 @@ export interface QuotationPrintData {
   }>;
   subtotal: number;
   tax: number;
+  taxAmount?: number;
   taxRate: number;
   total: number;
   notes?: string;
@@ -26,6 +27,10 @@ export interface QuotationPrintData {
   bankAccountType?: string;
   bankRut?: string;
   bankAccount?: string;
+  companyWebsite?: string;
+  validUntil?: string;
+  paymentConditions?: string;
+  termsConditions?: string;
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString('es-CL');
@@ -36,17 +41,18 @@ export function printQuotation(data: QuotationPrintData) {
   const cotNum = String(data.number).padStart(4, '0');
   const cn = data.companyName || 'TERRABLINDS SPA';
   const ct = data.companyTagline || 'Fabricación de Cortinas Roller a Medida, Toldos, Persianas Interiores y Exteriores<br>Cierres de Terraza, Domótica y Control de Acceso';
-  const wa = data.whatsapp || '+56 9 4115 0949';
-  const em = data.companyEmail || 'terrablinds@gmail.com';
+  const wa = data.whatsapp || '';
+  const em = data.companyEmail || '';
   const inst = data.installationCost ?? 0;
+  const taxVal = Number(data.taxAmount ?? data.tax ?? 0);
   const totalF = data.total + inst;
 
   // Datos bancarios por defecto TerraBlinds
-  const bHolder = data.bankHolder ?? 'HECTOR DURAN CASTELLANOS';
-  const bType   = data.bankAccountType ?? 'CORRIENTE';
-  const bBank   = data.bankName ?? 'FALLABELLA';
-  const bRut    = data.bankRut ?? '25.881.340-5';
-  const bAcct   = data.bankAccount ?? '019840874200';
+  const bHolder = data.bankHolder ?? '';
+  const bType   = data.bankAccountType ?? '';
+  const bBank   = data.bankName ?? '';
+  const bRut    = data.bankRut ?? '';
+  const bAcct   = data.bankAccount ?? '';
 
   const rows = [...data.items];
   while (rows.length < 10) rows.push(null as any);
@@ -99,7 +105,7 @@ export function printQuotation(data: QuotationPrintData) {
     </div>
     <div class="dh-row"><div class="dh">DÍA</div><div class="dh">MES</div><div class="dh">AÑO</div></div>
     <div class="dh-row"><div class="dv">${p2(d.getDate())}</div><div class="dv">${p2(d.getMonth()+1)}</div><div class="dv">${d.getFullYear()}</div></div>
-    <div class="vl">VÁLIDO POR 7 DÍAS</div>
+    <div class="vl">${data.validUntil ? "VÁLIDO HASTA " + new Date(data.validUntil).toLocaleDateString("es-CL") : "VÁLIDO POR 7 DÍAS"}</div>
   </div>
 </div>
 <table class="it">
@@ -124,7 +130,7 @@ export function printQuotation(data: QuotationPrintData) {
     <td style="width:45%;padding:0">
       <table style="width:100%;border-collapse:collapse">
         <tr><td class="tot" style="padding:4px 10px">SUB-TOTAL</td><td class="tot r" style="padding:4px 10px">${fmt(data.subtotal)}</td></tr>
-        ${data.taxRate>0?`<tr><td class="tot" style="padding:4px 10px">IVA (${data.taxRate}%)</td><td class="tot r" style="padding:4px 10px">${fmt(data.tax)}</td></tr>`:''}
+        ${data.taxRate>0?`<tr><td class="tot" style="padding:4px 10px">IVA (${data.taxRate}%)</td><td class="tot r" style="padding:4px 10px">${fmt(taxVal)}</td></tr>`:''}
         ${inst>0?`<tr><td class="tot" style="padding:4px 10px">Instalación</td><td class="tot r" style="padding:4px 10px">${fmt(inst)}</td></tr>`:''}
         <tr><td class="totf" style="padding:6px 10px">TOTAL</td><td class="totf r" style="padding:6px 10px">${fmt(totalF)}</td></tr>
       </table>
@@ -147,6 +153,7 @@ export function printQuotation(data: QuotationPrintData) {
     <div style="font-size:10px;font-style:italic">Escribenos a nuestros WhatsApp indicandonos tu nombre y apellido y te brindaremos asistencia.</div>
     <div style="font-size:15px;font-weight:900;margin-top:3px">${wa}</div>
     <div style="font-size:10px;color:#555;margin-top:2px">CORREO: ${em}</div>
+    ${data.companyWebsite ? `<div style="font-size:10px;color:#1d4ed8;margin-top:2px"><a href="${data.companyWebsite}" style="color:#1d4ed8;text-decoration:none">${data.companyWebsite}</a></div>` : ''}
   </td></tr>
 </table>
 </div></body></html>`;

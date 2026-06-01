@@ -1,0 +1,766 @@
+import { useState, useEffect, useCallback } from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+const API_URL = import.meta.env.VITE_API_URL ?? '';
+
+const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; probability: number }> = {
+  NUEVO:              { label: 'Nuevo',             color: '#6b7280', bg: '#f9fafb',   border: '#e5e7eb', probability: 5   },
+  CONTACTADO:         { label: 'Contactado',         color: '#3b82f6', bg: '#eff6ff',   border: '#bfdbfe', probability: 15  },
+  COTIZACION_ENVIADA: { label: 'Cotización Enviada', color: '#8b5cf6', bg: '#f5f3ff',   border: '#ddd6fe', probability: 30  },
+  SEGUIMIENTO:        { label: 'Seguimiento',        color: '#f59e0b', bg: '#fffbeb',   border: '#fde68a', probability: 40  },
+  APROBADO:           { label: 'Aprobado',           color: '#10b981', bg: '#ecfdf5',   border: '#a7f3d0', probability: 65  },
+  VENTA_CERRADA:      { label: 'Venta Cerrada',      color: '#059669', bg: '#d1fae5',   border: '#6ee7b7', probability: 100 },
+  PERDIDO:            { label: 'Perdido',            color: '#ef4444', bg: '#fef2f2',   border: '#fecaca', probability: 0   },
+};
+
+const STAGES = Object.keys(STAGE_CONFIG);
+
+function scoreColor(score: number) {
+  if (score >= 70) return '#10b981';
+  if (score >= 40) return '#f59e0b';
+  return '#ef4444';
+}
+
+function fmtCLP(n: number) {
+  return '$' + Math.round(n).toLocaleString('es-CL');
+}
+
+function fmtInitials(name: string) {
+  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
+
+interface Client {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  status: string;
+  score: number;
+  pipelineValue: number;
+  totalRevenue: number;
+  _count: { quotations: number; sales: number };
+}
+
+interface PipelineColumn {
+  clients: Client[];
+  count: number;
+  totalValue: number;
+  probability: number;
+  weightedValue: number;
+}
+
+// ─── Sortable Client Card ───────────────────────────────────────────────────
+
+function ClientCard({ client, onClick, isDragging }: { client: Client; onClick: () => void; isDragging?: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: client.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+    >
+      <CardContent client={client} />
+    </div>
+  );
+}
+
+function CardContent({ client }: { client: Client }) {
+  return (
+    <div style={{
+      background: '#fff',
+      border: '1px solid #e5e7eb',
+      borderRadius: 10,
+      padding: '12px 14px',
+      marginBottom: 8,
+      cursor: 'grab',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+      transition: 'box-shadow 0.15s',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        {/* Avatar */}
+        <div style={{
+          width: 36, height: 36, borderRadius: '50%',
+          background: `linear-gradient(135deg, #6366f1, #8b5cf6)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0,
+        }}>
+          {fmtInitials(client.name)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {client.name}
+          </div>
+          {client.email && (
+            <div style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {client.email}
+            </div>
+          )}
+        </div>
+        {/* Score pill */}
+        <div style={{
+          background: scoreColor(client.score) + '18',
+          color: scoreColor(client.score),
+          border: `1px solid ${scoreColor(client.score)}40`,
+          borderRadius: 20,
+          padding: '2px 8px',
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}>
+          {client.score}
+        </div>
+      </div>
+
+      {/* Pipeline value */}
+      {client.pipelineValue > 0 && (
+        <div style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+          {fmtCLP(client.pipelineValue)}
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>
+          {client._count.quotations} cot.
+        </span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>
+          {client._count.sales} vent.
+        </span>
+        {client.phone && (
+          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
+            📞
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pipeline Column ────────────────────────────────────────────────────────
+
+function PipelineColumnView({
+  stage,
+  column,
+  onCardClick,
+}: {
+  stage: string;
+  column: PipelineColumn;
+  onCardClick: (client: Client) => void;
+}) {
+  const cfg = STAGE_CONFIG[stage];
+  const ids = column.clients.map(c => c.id);
+
+  return (
+    <div style={{
+      width: 240,
+      flexShrink: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      background: cfg.bg,
+      border: `1px solid ${cfg.border}`,
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: `1px solid ${cfg.border}`,
+        background: '#fff',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color }} />
+            <span style={{ fontWeight: 700, fontSize: 12, color: '#111' }}>{cfg.label}</span>
+          </div>
+          <span style={{
+            background: cfg.color + '18', color: cfg.color,
+            borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700,
+          }}>
+            {column.count}
+          </span>
+        </div>
+        {column.totalValue > 0 && (
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+            {fmtCLP(column.totalValue)}
+            {cfg.probability > 0 && (
+              <span style={{ color: cfg.color, marginLeft: 4 }}>
+                → {fmtCLP(column.weightedValue)} ({cfg.probability}%)
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Cards */}
+      <div style={{ padding: '10px 8px', flex: 1, overflowY: 'auto', minHeight: 80, maxHeight: 'calc(100vh - 300px)' }}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          {column.clients.map(client => (
+            <ClientCard
+              key={client.id}
+              client={client}
+              onClick={() => onCardClick(client)}
+            />
+          ))}
+        </SortableContext>
+        {column.clients.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#d1d5db', fontSize: 12, paddingTop: 20 }}>
+            Arrastra aquí
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Client Detail Slide-Over ───────────────────────────────────────────────
+
+function ClientSlideOver({
+  client,
+  onClose,
+  onStatusChange,
+}: {
+  client: Client;
+  onClose: () => void;
+  onStatusChange: (clientId: string, status: string) => void;
+}) {
+  const [aiAction, setAiAction] = useState<any>(null);
+  const [creditRisk, setCreditRisk] = useState<any>(null);
+  const [loadingAi, setLoadingAi] = useState(false);
+
+  useEffect(() => {
+    setLoadingAi(true);
+    Promise.all([
+      fetch(`${API_URL}/api/v1/ai/next-action/${client.id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }).then(r => r.json()),
+      fetch(`${API_URL}/api/v1/ai/credit-risk/${client.id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }).then(r => r.json()),
+    ]).then(([action, risk]) => {
+      setAiAction(action);
+      setCreditRisk(risk);
+    }).catch(() => {}).finally(() => setLoadingAi(false));
+  }, [client.id]);
+
+  const urgencyColor = (u: string) => u === 'high' ? '#ef4444' : u === 'medium' ? '#f59e0b' : '#10b981';
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 40,
+        }}
+      />
+      {/* Panel */}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0,
+        width: 420, background: '#fff', zIndex: 50,
+        boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        display: 'flex', flexDirection: 'column',
+        overflowY: 'auto',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontWeight: 800, fontSize: 16,
+            }}>
+              {fmtInitials(client.name)}
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>{client.name}</div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: STAGE_CONFIG[client.status]?.color + '18',
+                color: STAGE_CONFIG[client.status]?.color,
+                borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600, marginTop: 2,
+              }}>
+                {STAGE_CONFIG[client.status]?.label}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af' }}>×</button>
+        </div>
+
+        <div style={{ padding: 24, flex: 1 }}>
+          {/* Contact info */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Contacto</div>
+            {client.email && <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>✉️ {client.email}</div>}
+            {client.phone && <div style={{ fontSize: 13, color: '#374151' }}>📞 {client.phone}</div>}
+          </div>
+
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Deal Score', value: client.score, suffix: '/100', color: scoreColor(client.score) },
+              { label: 'Pipeline', value: fmtCLP(client.pipelineValue), color: '#6366f1' },
+              { label: 'Revenue', value: fmtCLP(client.totalRevenue), color: '#059669' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 10px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: s.color }}>{s.value}{s.suffix ?? ''}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Move stage */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Mover etapa</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {STAGES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => onStatusChange(client.id, s)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    background: client.status === s ? STAGE_CONFIG[s].color : 'transparent',
+                    color: client.status === s ? '#fff' : STAGE_CONFIG[s].color,
+                    border: `1.5px solid ${STAGE_CONFIG[s].color}`,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {STAGE_CONFIG[s].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* AI Next Action */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              🤖 Siguiente Mejor Acción
+            </div>
+            {loadingAi ? (
+              <div style={{ background: '#f9fafb', borderRadius: 10, padding: 14, color: '#9ca3af', fontSize: 13 }}>Analizando con IA...</div>
+            ) : aiAction ? (
+              <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#111', flex: 1 }}>{aiAction.action}</div>
+                  {aiAction.urgency && (
+                    <span style={{
+                      background: urgencyColor(aiAction.urgency) + '18',
+                      color: urgencyColor(aiAction.urgency),
+                      borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0, marginLeft: 8,
+                    }}>
+                      {aiAction.urgency === 'high' ? '🔥 Alta' : aiAction.urgency === 'medium' ? '⚡ Media' : '💤 Baja'}
+                    </span>
+                  )}
+                </div>
+                {aiAction.reason && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>{aiAction.reason}</div>}
+                {aiAction.suggestedMessage && (
+                  <div style={{ background: '#eff6ff', borderRadius: 8, padding: 10, fontSize: 12, color: '#1d4ed8', fontStyle: 'italic' }}>
+                    "{aiAction.suggestedMessage}"
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: '#d1d5db', marginTop: 6, textAlign: 'right' }}>
+                  {aiAction.source === 'ai' ? '✨ IA Groq' : '📋 Reglas'}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Credit Risk */}
+          {creditRisk && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                📊 Riesgo Crediticio
+              </div>
+              <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                  {/* Score arc visualization */}
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      width: 56, height: 56, borderRadius: '50%',
+                      border: `4px solid ${scoreColor(100 - creditRisk.score)}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 16, fontWeight: 800, color: scoreColor(100 - creditRisk.score),
+                    }}>
+                      {creditRisk.score}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>score</div>
+                  </div>
+                  <div>
+                    <div style={{
+                      fontWeight: 800, fontSize: 16,
+                      color: creditRisk.level === 'BAJO' ? '#10b981'
+                        : creditRisk.level === 'MEDIO' ? '#f59e0b'
+                        : creditRisk.level === 'ALTO' ? '#ef4444' : '#7f1d1d',
+                    }}>
+                      Riesgo {creditRisk.level}
+                    </div>
+                  </div>
+                </div>
+                {creditRisk.factors?.length > 0 && (
+                  <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+                    {creditRisk.factors.map((f: string, i: number) => (
+                      <li key={i} style={{ fontSize: 12, color: '#6b7280', marginBottom: 3 }}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: 10 }}>
+          {client.phone && (
+            <a
+              href={`https://wa.me/56${client.phone?.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                flex: 1, background: '#25d366', color: '#fff',
+                border: 'none', borderRadius: 8, padding: '10px', textAlign: 'center',
+                fontWeight: 600, fontSize: 13, textDecoration: 'none', cursor: 'pointer',
+              }}
+            >
+              💬 WhatsApp
+            </a>
+          )}
+          {client.email && (
+            <a
+              href={`mailto:${client.email}`}
+              style={{
+                flex: 1, background: '#6366f1', color: '#fff',
+                border: 'none', borderRadius: 8, padding: '10px', textAlign: 'center',
+                fontWeight: 600, fontSize: 13, textDecoration: 'none', cursor: 'pointer',
+              }}
+            >
+              ✉️ Email
+            </a>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── List View ──────────────────────────────────────────────────────────────
+
+function ListView({ clients, onCardClick }: { clients: Client[]; onCardClick: (c: Client) => void }) {
+  const sorted = [...clients].sort((a, b) => b.score - a.score);
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+            {['Cliente', 'Etapa', 'Score', 'Pipeline', 'Revenue', 'Cot.', 'Vent.'].map(h => (
+              <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#6b7280', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(c => {
+            const cfg = STAGE_CONFIG[c.status];
+            return (
+              <tr
+                key={c.id}
+                onClick={() => onCardClick(c)}
+                style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer', transition: 'background 0.1s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <td style={{ padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontWeight: 700, fontSize: 11, flexShrink: 0,
+                    }}>
+                      {fmtInitials(c.name)}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#111' }}>{c.name}</div>
+                      {c.email && <div style={{ fontSize: 11, color: '#9ca3af' }}>{c.email}</div>}
+                    </div>
+                  </div>
+                </td>
+                <td style={{ padding: '10px 12px' }}>
+                  <span style={{
+                    background: cfg?.color + '18', color: cfg?.color,
+                    borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+                  }}>
+                    {cfg?.label}
+                  </span>
+                </td>
+                <td style={{ padding: '10px 12px' }}>
+                  <span style={{ fontWeight: 700, color: scoreColor(c.score), fontSize: 14 }}>{c.score}</span>
+                </td>
+                <td style={{ padding: '10px 12px', color: '#374151', fontWeight: 600 }}>{c.pipelineValue > 0 ? fmtCLP(c.pipelineValue) : '—'}</td>
+                <td style={{ padding: '10px 12px', color: '#059669', fontWeight: 600 }}>{c.totalRevenue > 0 ? fmtCLP(c.totalRevenue) : '—'}</td>
+                <td style={{ padding: '10px 12px', color: '#6b7280' }}>{c._count.quotations}</td>
+                <td style={{ padding: '10px 12px', color: '#6b7280' }}>{c._count.sales}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Main CRM Page ──────────────────────────────────────────────────────────
+
+export default function CRM() {
+  const [pipeline, setPipeline] = useState<Record<string, PipelineColumn>>({});
+  const [forecastRevenue, setForecastRevenue] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'kanban' | 'list'>('kanban');
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const token = localStorage.getItem('token');
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const fetchPipeline = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/crm/pipeline`, { headers });
+      const data = await res.json();
+      setPipeline(data.pipeline ?? {});
+      setForecastRevenue(data.forecastRevenue ?? 0);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPipeline(); }, [fetchPipeline]);
+
+  // Find which column a client is in
+  const findStage = (clientId: string) => {
+    for (const stage of STAGES) {
+      if (pipeline[stage]?.clients.find(c => c.id === clientId)) return stage;
+    }
+    return null;
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+
+    const fromStage = findStage(active.id as string);
+    // over.id can be a client id (within a column) or a stage id
+    const toStage = STAGES.includes(over.id as string)
+      ? (over.id as string)
+      : findStage(over.id as string);
+
+    if (!fromStage || !toStage || fromStage === toStage) return;
+
+    // Optimistic UI update
+    const client = pipeline[fromStage].clients.find(c => c.id === active.id)!;
+    setPipeline(prev => {
+      const next = { ...prev };
+      next[fromStage] = {
+        ...next[fromStage],
+        clients: next[fromStage].clients.filter(c => c.id !== active.id),
+        count: next[fromStage].count - 1,
+      };
+      next[toStage] = {
+        ...next[toStage],
+        clients: [{ ...client, status: toStage }, ...next[toStage].clients],
+        count: next[toStage].count + 1,
+      };
+      return next;
+    });
+
+    // Persist to backend
+    await fetch(`${API_URL}/api/v1/crm/clients/${active.id}/status`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: toStage }),
+    }).catch(() => fetchPipeline()); // revert on error
+  };
+
+  const handleStatusChange = async (clientId: string, status: string) => {
+    if (selectedClient) setSelectedClient({ ...selectedClient, status });
+    await fetch(`${API_URL}/api/v1/crm/clients/${clientId}/status`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    fetchPipeline();
+  };
+
+  const handleRecalculate = async () => {
+    setRecalculating(true);
+    await fetch(`${API_URL}/api/v1/crm/scores/recalculate`, { method: 'POST', headers });
+    await fetchPipeline();
+    setRecalculating(false);
+  };
+
+  // All clients flattened for list view
+  const allClients = STAGES.flatMap(s => pipeline[s]?.clients ?? []);
+  const activeClient = activeId ? allClients.find(c => c.id === activeId) : null;
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🎯</div>
+          <div style={{ color: '#9ca3af' }}>Cargando pipeline...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '24px', minHeight: '100%', background: '#f8f9fb' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#111', letterSpacing: '-0.5px' }}>
+            Pipeline CRM
+          </h1>
+          <div style={{ fontSize: 14, color: '#6b7280', marginTop: 4 }}>
+            {allClients.length} clientes · Forecast:{' '}
+            <span style={{ color: '#059669', fontWeight: 700 }}>{fmtCLP(forecastRevenue)}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* View toggle */}
+          <div style={{ display: 'flex', background: '#e5e7eb', borderRadius: 8, padding: 2 }}>
+            {(['kanban', 'list'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                style={{
+                  padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  background: view === v ? '#fff' : 'transparent',
+                  color: view === v ? '#111' : '#6b7280',
+                  fontWeight: view === v ? 700 : 400,
+                  fontSize: 13,
+                  boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {v === 'kanban' ? '⠿ Kanban' : '≡ Lista'}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={handleRecalculate}
+            disabled={recalculating}
+            style={{
+              padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: '#6366f1', color: '#fff', fontWeight: 600, fontSize: 13,
+              opacity: recalculating ? 0.7 : 1,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            {recalculating ? '⟳ Calculando...' : '⟳ Recalcular Scores'}
+          </button>
+        </div>
+      </div>
+
+      {/* Forecast bar */}
+      {forecastRevenue > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          borderRadius: 12, padding: '14px 20px', marginBottom: 20,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+        }}>
+          <div>
+            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: 600 }}>FORECAST PONDERADO TOTAL</div>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 24, letterSpacing: '-0.5px' }}>
+              {fmtCLP(forecastRevenue)}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            {STAGES.filter(s => s !== 'PERDIDO' && (pipeline[s]?.count ?? 0) > 0).map(s => (
+              <div key={s} style={{ textAlign: 'center' }}>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{pipeline[s]?.count}</div>
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>{STAGE_CONFIG[s].label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
+      {view === 'kanban' ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 16 }}>
+            {STAGES.map(stage => (
+              <PipelineColumnView
+                key={stage}
+                stage={stage}
+                column={pipeline[stage] ?? { clients: [], count: 0, totalValue: 0, probability: 0, weightedValue: 0 }}
+                onCardClick={setSelectedClient}
+              />
+            ))}
+          </div>
+
+          {/* Drag overlay */}
+          <DragOverlay>
+            {activeClient ? (
+              <div style={{ opacity: 0.95, transform: 'rotate(2deg)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', borderRadius: 10, width: 220 }}>
+                <CardContent client={activeClient} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+          <ListView clients={allClients} onCardClick={setSelectedClient} />
+        </div>
+      )}
+
+      {/* Client Slide-Over */}
+      {selectedClient && (
+        <ClientSlideOver
+          client={selectedClient}
+          onClose={() => setSelectedClient(null)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
+    </div>
+  );
+}
